@@ -1,0 +1,37 @@
+# TWO namespaces for observability, split by what the pods need from the node:
+#
+#   observability        gateway collector, metrics collector, kube-state-metrics, Grafana.
+#                        Pod Security `restricted` (non-root, no host access): the strict default.
+#   observability-node   ONLY the node agent (a DaemonSet that reads container log files from the
+#                        node's disk). Reading /var/log/pods needs a hostPath volume and root,
+#                        which `restricted` and `baseline` both forbid, so this namespace is
+#                        `privileged`. Keeping that exception in its own namespace means the
+#                        privilege is granted to one DaemonSet and nothing else.
+#
+# Created by this Application (observability-config) at wave 0 of its own sync, before the
+# ExternalSecrets and dashboards (wave 1). The collectors' Applications (waves 3) come later.
+#
+# Related: bootstrap/observability-config.yaml, platform/otel-agent (why it needs the node).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability-node
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+    app.kubernetes.io/managed-by: argocd

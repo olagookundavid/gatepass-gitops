@@ -1,0 +1,119 @@
+# Grafana, self-hosted (Amazon Managed Grafana is not available on this account). It is the
+# window onto three AWS data sources and holds NO data of its own: no database, no volume. The
+# dashboards come from Git (ConfigMaps labelled grafana_dashboard, delivered by
+# platform/observability and loaded by the sidecar), the data sources are provisioned below, so
+# a rebuilt Grafana is identical and a dashboard changed by hand in the UI is lost on purpose.
+#
+# DATA SOURCES (all authenticate with the pod's IAM role through Pod Identity; no keys):
+#   amp         Prometheus workspace (metrics): sigV4Auth, URL from the Secret observability-endpoints
+#   cloudwatch  CloudWatch Logs and metrics (built into Grafana): log search with Logs Insights
+#   xray        AWS X-Ray traces (a plugin that Grafana downloads at start)
+# Read-only IAM: gatepass-infra/60-observability/pod-identity.tf role gatepass-dev-grafana.
+#
+# ACCESS. No Ingress yet: `kubectl -n observability port-forward svc/grafana 3000:80` and
+# http://localhost:3000, user and password from Secrets Manager (walkthrough 06 step B). Login with
+# GitHub (SSO) is added in Phase 6b when a stable host name exists for the OAuth callback; until
+# then the local admin account is the only door, there is no anonymous access and no sign-up.
+#
+# UNVERIFIED until the first run: the X-Ray plugin id and that it installs from this cluster (the
+# plugin version is not pinned: a deliberate gap, decision log); the data source field names in
+# this Grafana version; that the sidecar finds the dashboards.
+#
+# Related: bootstrap/grafana.yaml, platform/observability/ (dashboards, admin Secret).
+fullnameOverride: grafana
+
+serviceAccount:
+  create: true
+  name: grafana    # Pod Identity binds the read-only role to observability/grafana
+
+admin:
+  existingSecret: grafana-admin
+  userKey: admin-user
+  passwordKey: admin-password
+
+# Nothing is stored: dashboards and data sources are code.
+persistence:
+  enabled: false
+
+plugins:
+  - grafana-x-ray-datasource
+
+envFromSecrets:
+  - name: observability-endpoints   # AMP_QUERY_URL, used by the data source below
+
+grafana.ini:
+  server:
+    root_url: http://localhost:3000
+  users:
+    allow_sign_up: false
+  auth.anonymous:
+    enabled: false
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+    check_for_plugin_updates: false
+  log:
+    mode: console
+    level: info
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: AMP
+        uid: amp
+        type: prometheus
+        access: proxy
+        url: ${AMP_QUERY_URL}
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          sigV4Auth: true
+          sigV4AuthType: default
+          sigV4Region: us-east-1
+          timeInterval: 30s
+      - name: CloudWatch
+        uid: cloudwatch
+        type: cloudwatch
+        jsonData:
+          authType: default
+          defaultRegion: us-east-1
+      - name: X-Ray
+        uid: xray
+        type: grafana-x-ray-datasource
+        jsonData:
+          authType: default
+          defaultRegion: us-east-1
+
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    searchNamespace: observability
+    folderAnnotation: grafana_folder
+    provider:
+      foldersFromFilesStructure: false
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: ["ALL"]}
+    seccompProfile: {type: RuntimeDefault}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: ["ALL"]}
+  seccompProfile: {type: RuntimeDefault}
+
+resources:
+  requests: {cpu: 50m, memory: 192Mi}
+  limits: {memory: 384Mi}
+
+testFramework:
+  enabled: false

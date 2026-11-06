@@ -1,0 +1,149 @@
+# NODE AGENT collector: one pod on every node. Two jobs that only make sense per node:
+#   1. LOGS. Read the container log files of the gatepass-* namespaces from the node's disk
+#      (/var/log/pods/<namespace>_<pod>_<uid>/<container>/N.log), parse the CRI wrapper and the
+#      service's JSON line, and write them to the CloudWatch log group (retention set by Terraform).
+#      A DaemonSet that reads files from the node needs a hostPath volume and root, which is why
+#      this is the ONLY workload in the privileged namespace observability-node.
+#   2. NODE and POD RESOURCE METRICS from the kubelet (CPU, memory, filesystem per node, pod and
+#      container) -> the Prometheus workspace.
+#
+# Each log line becomes one CloudWatch event: the original line as body, the parsed JSON fields
+# as attributes (level, msg, trace_id ...), and the Kubernetes identity (namespace, pod,
+# container) as resource attributes. The `trace_id` is also attached as the event's trace id, so
+# a log line and its trace can be joined in Grafana.
+#
+# Only gatepass-* namespaces are collected: platform logs (Argo CD, Karpenter ...) stay on the
+# node and in kubectl logs, which keeps the bill about the application.
+#
+# UNVERIFIED until the first run: the `container` parser operator name and field names in this
+# collector version; kubelet TLS (insecure_skip_verify, the usual setting on EKS); whether
+# root is enough to read the log files; the log event JSON shape that the metric filter in
+# 60-observability/logs.tf matches ({ $.attributes.level = "error" }).
+#
+# Related: bootstrap/otel-agent.yaml, platform/observability/namespaces.yaml (the privileged
+# namespace), gatepass-infra/60-observability/logs.tf (the log group).
+mode: daemonset
+
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+  tag: ""
+  digest: sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
+command:
+  name: otelcol-contrib
+
+# A second service account of the same name in THIS namespace (the Pod Identity association for
+# observability-node/otel-collector uses the same IAM role).
+serviceAccount:
+  create: true
+  name: otel-collector
+
+presets:
+  kubeletMetrics:
+    enabled: true   # adds the kubeletstats receiver and its RBAC
+
+extraEnvsFrom:
+  - secretRef:
+      name: observability-endpoints   # AMP_REMOTE_WRITE_URL, LOG_GROUP
+
+extraVolumes:
+  - name: varlogpods
+    hostPath: {path: /var/log/pods}
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+
+# Root, because the log files on the node are owned by root. Everything else stays locked down.
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}
+
+# Run on every node, including the tainted system nodes.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+ports:
+  otlp: {enabled: false}
+  otlp-http: {enabled: false}
+  jaeger-compact: {enabled: false}
+  jaeger-thrift: {enabled: false}
+  jaeger-grpc: {enabled: false}
+  zipkin: {enabled: false}
+
+config:
+  extensions:
+    health_check:
+      endpoint: ${env:MY_POD_IP}:13133
+    sigv4auth:
+      region: us-east-1
+      service: aps
+  receivers:
+    otlp: null
+    jaeger: null
+    zipkin: null
+    prometheus: null
+    # The kubelet's HTTPS certificate is not verified (dev shortcut, decision log): production
+    # uses endpoint https://${env:K8S_NODE_NAME}:10250 with the service account CA.
+    kubeletstats:
+      insecure_skip_verify: true
+    filelog:
+      include: ["/var/log/pods/gatepass-*_*/*/*.log"]
+      start_at: end
+      include_file_path: false
+      operators:
+        # Understand the container runtime's line format and set k8s.namespace.name, k8s.pod.name,
+        # k8s.container.name, k8s.pod.uid from the file path.
+        - type: container
+          id: container-parser
+        # The services log one JSON object per line. A line that is not JSON (a panic trace) is
+        # kept as text: on_error send.
+        - type: json_parser
+          id: json
+          parse_from: body
+          parse_to: attributes
+          on_error: send
+        - type: trace_parser
+          trace_id:
+            parse_from: attributes.trace_id
+          span_id:
+            parse_from: attributes.span_id
+          on_error: send
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    batch: {}
+  exporters:
+    debug: null
+    awscloudwatchlogs:
+      region: us-east-1
+      log_group_name: ${env:LOG_GROUP}
+      log_stream_name: ${env:K8S_NODE_NAME}
+      raw_log: false
+    prometheusremotewrite:
+      endpoint: ${env:AMP_REMOTE_WRITE_URL}
+      auth:
+        authenticator: sigv4auth
+      resource_to_telemetry_conversion:
+        enabled: true
+  service:
+    extensions: [health_check, sigv4auth]
+    pipelines:
+      traces: null
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, batch]
+        exporters: [awscloudwatchlogs]
+      metrics:
+        receivers: [kubeletstats]
+        processors: [memory_limiter, batch]
+        exporters: [prometheusremotewrite]

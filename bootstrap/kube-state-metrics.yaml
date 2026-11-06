@@ -1,0 +1,41 @@
+# Child application: kube-state-metrics (kube-state-metrics 8.8.0 from https://prometheus-community.github.io/helm-charts).
+# Chart version pinned; settings in platform/kube-state-metrics/values.yaml; wave 2 (after observability-config
+# at wave 1, which creates the namespaces and the Secrets this reads). See that values file for
+# what it does and what is unverified.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-state-metrics
+      targetRevision: 8.8.0
+      helm:
+        releaseName: kube-state-metrics
+        valueFiles:
+          - $values/platform/kube-state-metrics/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

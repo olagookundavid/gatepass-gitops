@@ -1,0 +1,39 @@
+# kube-state-metrics (KSM): turns the Kubernetes API's OBJECTS into metrics: how many replicas a
+# Deployment wants and has, what phase each pod is in, whether each node is Ready or under
+# pressure. It does not measure CPU or memory (the kubelet does, via the node agent); it measures
+# what Kubernetes believes. Almost every platform alert in 60-observability/rules/platform.yaml
+# is a PromQL expression over its metrics.
+#
+# The Service is named plainly `kube-state-metrics` so the metrics collector can scrape the stable
+# address kube-state-metrics.observability.svc:8080 (platform/otel-metrics/values.yaml).
+#
+# Related: bootstrap/kube-state-metrics.yaml, platform/otel-metrics/values.yaml.
+fullnameOverride: kube-state-metrics
+
+resources:
+  requests: {cpu: 20m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+# Restricted Pod Security: non-root, no extra capabilities (the chart defaults are close; explicit here).
+securityContext:
+  enabled: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}
+
+# Only the object kinds the alerts and dashboards use (fewer series, smaller bill).
+collectors:
+  - deployments
+  - daemonsets
+  - statefulsets
+  - replicasets
+  - pods
+  - nodes
+  - jobs
+  - persistentvolumeclaims

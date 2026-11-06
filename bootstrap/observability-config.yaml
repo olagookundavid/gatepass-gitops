@@ -1,0 +1,31 @@
+# Child application: the namespaces, the External Secrets and the Grafana dashboards of the
+# observability stack, as plain manifests from platform/observability/ (directory recurse so the
+# dashboards in dashboards/ are included).
+# Wave 1: after the add-ons (ESO is wave -1) and before the collectors and Grafana (waves 2-3),
+# which read the Secrets and namespaces created here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/observability
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
