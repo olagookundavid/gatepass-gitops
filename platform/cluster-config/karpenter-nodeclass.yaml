@@ -1,0 +1,60 @@
+# EC2NodeClass "default": HOW Karpenter builds a node (the AWS-specific half). The NodePools in
+# karpenter-nodepools.yaml say WHAT to build (sizes, limits, when to remove); this says with
+# which image, in which subnets, behind which security group, with which role and disk.
+#
+# Every field is looked up or pinned, nothing is guessed:
+#   role                    the IAM role of the new nodes: created in
+#                           gatepass-infra/30-platform-aws/karpenter-iam.tf (output
+#                           karpenter_node_role_name). Karpenter wraps it in an instance profile.
+#   amiSelectorTerms alias  `al2023@v20261031` = Amazon Linux 2023, EKS-optimised, release
+#                           v20261031 (the release current for Kubernetes 1.36 on 2026-11-05;
+#                           list releases: aws ssm get-parameter --name
+#                           /aws/service/eks/optimized-ami/1.36/amazon-linux-2023/x86_64/standard/recommended/image_name).
+#                           PINNED on purpose. The course used `al2023@latest`, which means a
+#                           new image silently rolls every node the day AWS publishes one;
+#                           pinned, a new image is a pull request you review.
+#   subnetSelectorTerms     the PRIVATE subnets that 10-network tagged karpenter.sh/discovery.
+#   securityGroupSelectorTerms  the cluster security group EKS created (it carries the tag
+#                           aws:eks:cluster-name). UNVERIFIED until the first node launches:
+#                           check with  aws ec2 describe-security-groups --filters
+#                           Name=tag:aws:eks:cluster-name,Values=gatepass-dev
+#                           It must print exactly one group.
+#   blockDeviceMappings     20 GiB gp3 root disk, encrypted. Encrypted with the AWS-managed EBS
+#                           key (production often uses the project's own KMS key).
+#   metadataOptions         IMDSv2 required, ONE hop: a pod cannot reach the node's credentials
+#                           (same setting as the system node group, 20-cluster/nodes.tf).
+#   tags                    on every instance and volume, so the bill groups with the project
+#                           (Terraform's default_tags do not reach what Karpenter creates).
+#
+# Related: karpenter-nodepools.yaml (refers to this by name `default`), 30-platform-aws
+# (the role), 10-network/subnets.tf (the discovery tag).
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  role: gatepass-dev-karpenter-node
+  amiSelectorTerms:
+    - alias: al2023@v20261031
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: gatepass-dev
+  securityGroupSelectorTerms:
+    - tags:
+        "aws:eks:cluster-name": gatepass-dev
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 20Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+  metadataOptions:
+    httpEndpoint: enabled
+    httpTokens: required
+    httpPutResponseHopLimit: 1
+  tags:
+    Project: gatepass
+    Environment: dev
+    ManagedBy: karpenter
+    CostCenter: learning

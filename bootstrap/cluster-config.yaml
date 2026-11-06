@@ -1,0 +1,33 @@
+# Child application 3: cluster configuration that is not a controller: namespaces now; later
+# resource quotas, network policies, node pools, storage classes (Phases 3 and 6).
+#
+# sync-wave 10 = after Argo CD's own application. Today it holds one harmless object, the
+# namespace `smoke` (platform/cluster-config/namespace-smoke.yaml), which proves the loop:
+# merge a pull request that adds a namespace and it appears without anyone running kubectl;
+# delete one by hand and Argo CD puts it back (selfHeal); remove its file and it is pruned.
+#
+# Related: projects/platform.yaml (its fence), platform/cluster-config/ (what it applies).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/cluster-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

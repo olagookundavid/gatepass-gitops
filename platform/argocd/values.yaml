@@ -1,0 +1,122 @@
+# The FULL configuration of Argo CD, applied by the Application `platform-argocd`
+# (bootstrap/platform-argocd.yaml) to the argo-cd Helm chart at the pinned version.
+#
+# Nothing secret is in this file (the repository is public). Where a secret is needed, the
+# value is a reference ("$<secret>:<key>") to a Kubernetes Secret that Terraform created from
+# AWS Secrets Manager (gatepass-infra/25-gitops-bootstrap/secrets.tf).
+#
+# The first four settings are ALSO in gatepass-infra/25-gitops-bootstrap/argocd-bootstrap-values.yaml
+# (the minimal values used at first install). Keep them equal, or Argo CD would change them
+# on the day it takes itself over.
+#
+# Related: bootstrap/platform-argocd.yaml (applies this), projects/platform.yaml (its fence).
+
+global:
+  # The system nodes are tainted CriticalAddonsOnly (gatepass-infra/20-cluster/nodes.tf).
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+configs:
+  params:
+    # Plain HTTP inside the cluster; TLS is terminated in front (ALB, Phase 6b).
+    server.insecure: true
+
+  # Chart sources that need declaring. Plain HTTPS Helm repositories need no entry here (an
+  # Application may name them as long as its AppProject allows them), but an OCI registry
+  # does: Argo CD must be told to speak OCI to it. Karpenter publishes its charts only as OCI
+  # artifacts (public.ecr.aws/karpenter), anonymous read, so there are no credentials. Each
+  # key becomes a Secret `argocd-repo-<key>` labelled secret-type=repository.
+  repositories:
+    karpenter-oci:
+      name: karpenter
+      type: helm
+      url: public.ecr.aws/karpenter
+      enableOCI: "true"
+
+  rbac:
+    # argocd-rbac-cm is created by Terraform (it holds a personal e-mail address).
+    create: false
+
+  cm:
+    # No local admin user, no anonymous access.
+    admin.enabled: false
+    users.anonymous.enabled: false
+
+    # Where users reach Argo CD. Until Phase 6b this is the kubectl port-forward address; it
+    # is also the address GitHub sends the browser back to after login
+    # (http://localhost:8080/api/dex/callback, set in the GitHub OAuth app).
+    url: http://localhost:8080
+
+    # A shell inside application pods from the UI: off (nobody needs it, and it is a way in).
+    exec.enabled: false
+    # Public status badges for applications: off.
+    statusbadge.enabled: false
+
+    # How often Argo CD compares Git with the cluster when no webhook arrives (3 minutes).
+    # Phase 6b adds a GitHub webhook; then a push is noticed in seconds and this is a fallback.
+    timeout.reconciliation: 180s
+
+    # SSO through GitHub, using Dex (a small identity-broker server that ships with Argo CD).
+    # The client id and secret of the GitHub OAuth app are read from the Kubernetes Secret
+    # argocd-dex-github (labelled part-of=argocd, which is what allows the reference).
+    # No `orgs:` restriction: this is a personal account with no organisation; who may DO
+    # anything is decided by argocd-rbac-cm (default: nothing; only the admin e-mail).
+    dex.config: |
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: $argocd-dex-github:dex.github.clientID
+            clientSecret: $argocd-dex-github:dex.github.clientSecret
+
+notifications:
+  secret:
+    # argocd-notifications-secret is created by Terraform (Slack webhook URL).
+    create: false
+
+  argocdUrl: http://localhost:8080
+
+  # A webhook notifier named `slack`; "$slack-webhook-url" = the key of that name in
+  # argocd-notifications-secret. Slack's incoming webhook accepts a JSON body with a "text".
+  notifiers:
+    service.webhook.slack: |
+      url: $slack-webhook-url
+      headers:
+        - name: Content-Type
+          value: application/json
+
+  # What the message says. Only fixed fields go into the JSON body (name, status, revision,
+  # link): free text from Argo CD (an error message) could contain a quote and break the JSON.
+  templates:
+    template.app-sync-failed: |
+      webhook:
+        slack:
+          method: POST
+          body: |
+            {"text": ":x: *{{.app.metadata.name}}*: sync FAILED (revision {{.app.status.sync.revision}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
+    template.app-health-degraded: |
+      webhook:
+        slack:
+          method: POST
+          body: |
+            {"text": ":warning: *{{.app.metadata.name}}*: health is DEGRADED. {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
+
+  # WHEN to send. A trigger is a condition on the application's status; the controller sends
+  # once when the condition becomes true and again only after it has been false.
+  triggers:
+    trigger.on-sync-failed: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+        send: [app-sync-failed]
+    trigger.on-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [app-health-degraded]
+
+  # TO WHOM: every application, both triggers, the Slack webhook.
+  subscriptions:
+    - recipients:
+        - webhook:slack
+      triggers:
+        - on-sync-failed
+        - on-health-degraded

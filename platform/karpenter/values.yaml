@@ -1,0 +1,26 @@
+# Values for the karpenter chart 1.15.1 (applied by bootstrap/karpenter.yaml). Only what
+# differs from the chart's defaults.
+#
+# Names here MUST equal gatepass-infra/30-platform-aws: the service account `karpenter` in
+# kube-system (pod-identity.tf), the cluster name (20-cluster) and the interruption queue
+# (karpenter-queue.tf, `<cluster>-karpenter`).
+
+settings:
+  clusterName: gatepass-dev
+  interruptionQueue: gatepass-dev-karpenter
+
+serviceAccount:
+  create: true
+  name: karpenter
+
+# Two copies for availability (the chart keeps them on different nodes and holds a leader
+# lock, so only one acts at a time). Tolerating CriticalAddonsOnly is already the chart default.
+replicas: 2
+
+controller:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

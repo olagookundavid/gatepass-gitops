@@ -1,0 +1,57 @@
+# The Karpenter test: a Deployment that starts at ZERO pods. Scale it up by hand
+# (`kubectl -n gatepass-smoke scale deployment inflate --replicas=3`) and each pod asks for
+# 1.5 vCPU, which no existing node has free (the two system nodes are tainted anyway), so the
+# pods stay Pending; Karpenter sees them, chooses an allowed instance type from the NodePool
+# `general`, launches it, and the pods start in about a minute or two. Scale back to 0 and,
+# a minute later (consolidateAfter), Karpenter deletes the now-empty node.
+#
+# 1.5 vCPU on a 2-vCPU node (about 1.9 allocatable) means ONE pod per node: three replicas =
+# three nodes, which also shows the pool limit (8 vCPU = 4 nodes at most). nodeSelector
+# `gatepass.dev/pool: general` keeps it on On-Demand nodes; the Spot pool is tainted and this
+# pod does not tolerate the taint.
+#
+# It reuses the pinned nginx image: the pods only need to exist, not to do anything.
+# Related: application.yaml (ignores this Deployment's replicas so the manual scale sticks),
+# platform/cluster-config/karpenter-nodepools.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+  labels:
+    app.kubernetes.io/name: inflate
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inflate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inflate
+    spec:
+      nodeSelector:
+        gatepass.dev/pool: general
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inflate
+          image: public.ecr.aws/nginx/nginx-unprivileged@sha256:93a0458087e8dd06e7e59ceaeb3c54c9e73f64730282ab9387c3fe47a42bfc99
+          resources:
+            requests:
+              cpu: 1500m
+              memory: 512Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

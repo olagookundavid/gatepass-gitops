@@ -1,0 +1,37 @@
+# StorageClass "gp3": what a PersistentVolumeClaim gets when it does not name a class.
+#
+# A StorageClass is a recipe for creating disks. This one asks the EBS CSI driver (the managed
+# add-on in gatepass-infra/30-platform-aws/ebs-csi.tf) for gp3 volumes: cheaper than gp2 for the
+# same size ($0.08 per GiB-month against $0.10) and with performance independent of size.
+#
+#   provisioner ebs.csi.aws.com     the driver installed by the EKS add-on aws-ebs-csi-driver.
+#                                   (Not ebs.csi.eks.amazonaws.com: that one belongs to EKS Auto
+#                                   Mode, which this cluster is not.)
+#   encrypted "true"                the disk is encrypted with the AWS-managed EBS key.
+#   volumeBindingMode WaitForFirstConsumer  the disk is created only when a pod that uses it is
+#                                   scheduled, IN THAT POD'S ZONE. With Immediate binding the
+#                                   disk could be made in a zone where the pod can never run.
+#   allowVolumeExpansion true       a claim can be grown later by editing its size.
+#   reclaimPolicy Delete            DEV CHOICE: deleting the claim deletes the disk, so
+#                                   `make down` leaves no disk costing money. Production data
+#                                   volumes use Retain.
+#
+# EKS also ships an older default class called gp2. When two classes are marked default,
+# Kubernetes picks the newest one, which is this one; check with `kubectl get storageclass`.
+#
+# Related: gatepass-infra/30-platform-aws/ebs-csi.tf; Phase 5 (Prometheus and Grafana) is the
+# first user.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  fsType: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

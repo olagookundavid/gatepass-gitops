@@ -1,0 +1,8 @@
+# This repository holds only YAML that is meant to be public. Nothing below belongs here.
+*.pem
+*.key
+id_*
+*.tfstate
+*.tfstate.*
+.env
+.DS_Store

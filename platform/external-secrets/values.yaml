@@ -1,0 +1,27 @@
+# Values for the external-secrets chart 2.14.0 (applied by bootstrap/external-secrets.yaml).
+# Only what differs from the chart's defaults.
+#
+# The service account name `external-secrets` (the chart default, restated so the link to
+# gatepass-infra/30-platform-aws/pod-identity.tf is visible) in the namespace external-secrets.
+
+global:
+  # All three components (controller, webhook, certificate controller) run on the system nodes,
+  # which are tainted CriticalAddonsOnly (gatepass-infra/20-cluster/nodes.tf).
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+serviceAccount:
+  create: true
+  name: external-secrets
+
+# CRDs come with the chart (installCRDs is true by default); Argo CD applies them with
+# server-side apply, see the Application.
+installCRDs: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    memory: 256Mi

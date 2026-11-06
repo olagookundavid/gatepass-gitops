@@ -1,0 +1,22 @@
+# Values for the metrics-server chart 3.14.0 (applied by bootstrap/metrics-server.yaml). Only
+# what differs from the chart's defaults.
+
+# Two copies, so that one node going away does not blind the autoscaler for the time it takes
+# to reschedule. The chart's default anti-affinity puts them on different nodes.
+replicas: 2
+
+# The system nodes are tainted CriticalAddonsOnly (gatepass-infra/20-cluster/nodes.tf).
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

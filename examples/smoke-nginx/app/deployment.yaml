@@ -1,0 +1,72 @@
+# Two small web servers that answer "Welcome to nginx" on port 8080, written to pass the
+# namespace's Pod Security level `restricted` (namespace-gatepass-smoke.yaml):
+#   runAsNonRoot + a numeric user    the image runs as uid 101 (nginx-unprivileged, port 8080
+#                                    because a non-root process cannot bind port 80)
+#   allowPrivilegeEscalation false, capabilities drop ALL, seccomp RuntimeDefault
+#   readOnlyRootFilesystem + /tmp    nothing can be written into the image; nginx's pid file and
+#                                    temp files go to an emptyDir at /tmp. UNVERIFIED: if the pod
+#                                    crash-loops with "Read-only file system", remove
+#                                    readOnlyRootFilesystem here and say so in the decision log.
+# The image is pinned BY DIGEST (not just a tag): the tag can be moved, the digest cannot. It
+# comes from the public ECR mirror of the official image (no Docker Hub rate limit, and the
+# pull stays inside AWS). Digest of the 1.29.4-alpine-slim multi-architecture index,
+# read from the registry on 2026-11-05.
+#
+# Requests and limits are set because a pod with no requests is invisible to the scheduler and
+# to Karpenter (it would never trigger a new node).
+#
+# Related: service.yaml, ingress.yaml, inflate.yaml (the Karpenter test).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: public.ecr.aws/nginx/nginx-unprivileged@sha256:93a0458087e8dd06e7e59ceaeb3c54c9e73f64730282ab9387c3fe47a42bfc99
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

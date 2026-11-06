@@ -1,0 +1,37 @@
+# Child application 1: creates the AppProjects `platform` and `apps` from the projects/ folder.
+#
+# sync-wave -10 makes it the FIRST thing the root application applies and waits for: the other
+# applications in this folder name project `platform`, and an application whose project does
+# not exist yet is rejected. (Argo CD would retry and succeed a minute later anyway; the wave
+# makes the first sync clean.)
+#
+# It lives in project `bootstrap` (the strictest fence, created by Terraform in root.tf): it
+# may only create Application and AppProject objects in the argocd namespace, which is all
+# this folder contains.
+#
+# Related: projects/*.yaml (what it applies), root.tf in gatepass-infra (the root application
+# that applies THIS file).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: projects
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: bootstrap
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: projects
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

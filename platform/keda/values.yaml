@@ -1,0 +1,22 @@
+# Values for the keda chart 2.21.0 (applied by bootstrap/keda.yaml). Only what differs from
+# the chart's defaults.
+#
+# KEDA is three deployments (operator, metrics API server, admission webhooks). The chart has
+# one `tolerations` list per component, and the system nodes are tainted CriticalAddonsOnly
+# (gatepass-infra/20-cluster/nodes.tf), so each component gets the same entry. Without it the
+# pods would stay Pending: at this point the system nodes are the only nodes.
+
+operator:
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+metricsServer:
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+webhooks:
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists

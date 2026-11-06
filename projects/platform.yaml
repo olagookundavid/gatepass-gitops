@@ -1,0 +1,43 @@
+# AppProject "platform": the fence around everything that makes the cluster usable but is not
+# a Gatepass service: Argo CD's own configuration, controllers (load balancer controller,
+# Karpenter, ...), namespaces, quotas, policies.
+#
+# An AppProject answers four questions for every Application that names it:
+#   sourceRepos   which repositories may it read?
+#   destinations  which cluster and namespaces may it write to?
+#   *ResourceWhitelist  which kinds of object may it create?
+# This project is wide on purpose (platform add-ons install CRDs, cluster roles and
+# namespaces) but not unlimited: it may read only the repositories listed below and it may only
+# write to this cluster. Every chart repository the platform trusts is added HERE by pull
+# request, so "which charts does the platform trust" is a reviewed list. Phase 3 added the
+# AWS eks-charts (load balancer controller), metrics-server, External Secrets, KEDA and the
+# Karpenter OCI registry (public.ecr.aws/karpenter, which has no https:// prefix: that is how
+# Argo CD writes an OCI source).
+#
+# Created by the Application `projects` (bootstrap/projects.yaml). Related: projects/apps.yaml
+# (the narrower fence for services), bootstrap/ (the Applications that use this project).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform add-ons and cluster configuration (wide fence, reviewed list of sources).
+  sourceRepos:
+    - git@github.com:olagookundavid/gatepass-gitops.git
+    - https://argoproj.github.io/argo-helm
+    - https://aws.github.io/eks-charts
+    - https://kubernetes-sigs.github.io/metrics-server
+    - https://charts.external-secrets.io
+    - https://kedacore.github.io/charts
+    - public.ecr.aws/karpenter
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  # No orphanedResources warning here: Terraform owns a few objects in the argocd namespace on
+  # purpose (the Secrets and the RBAC ConfigMap), and the Helm release records, which Argo CD
+  # would list as "orphans". The `apps` project enables the warning (nothing outside Argo CD
+  # should be in the service namespaces).

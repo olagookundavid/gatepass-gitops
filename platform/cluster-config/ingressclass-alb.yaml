@@ -1,0 +1,59 @@
+# The IngressClass "alb": the single policy every Ingress in the cluster inherits when it asks
+# for a load balancer. A service team writes `ingressClassName: alb` and a host/path; the
+# decisions that must not vary per service are made here, once, in review:
+#
+#   group.name + loadBalancerName   ONE shared Application Load Balancer for all Ingresses
+#                                   (an ALB costs about $16 a month plus capacity units; one per
+#                                   service would be ten times that). Each Ingress adds its own
+#                                   listener rules to it.
+#   scheme internet-facing          reachable from the internet. Internal services have no
+#                                   Ingress at all; they are reached through cluster DNS.
+#   targetType ip                   the ALB sends traffic straight to pod addresses (the VPC
+#                                   CNI gives every pod a VPC address) instead of to a node
+#                                   port: one hop less, and the ALB sees which pods are healthy.
+#   wafv2AclName gatepass-dev       the web ACL created by gatepass-infra/30-platform-aws/waf.tf,
+#                                   attached to the ALB. By NAME, so no account id is written in
+#                                   this public repository. UNVERIFIED until the first ALB: the
+#                                   controller must be allowed wafv2:ListWebACLs for this
+#                                   (30-platform-aws/lbc.tf says how to tell).
+#   tags                            on the ALB and its target groups, for the bill.
+#
+# The class is marked default: an Ingress with no ingressClassName also gets this class.
+#
+# HTTP ONLY for now (no certificate and no domain until Phase 6b). Then this file gains the
+# HTTPS listener, the certificate and the redirect, for every Ingress at once.
+#
+# Related: bootstrap/aws-load-balancer-controller.yaml (the controller that reads this; its
+# chart is told NOT to create its own class), examples/smoke-nginx (an Ingress that uses it).
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: IngressClassParams
+metadata:
+  name: alb
+spec:
+  group:
+    name: gatepass-dev
+  loadBalancerName: gatepass-dev
+  scheme: internet-facing
+  ipAddressType: ipv4
+  targetType: ip
+  wafv2AclName: gatepass-dev
+  tags:
+    - key: Project
+      value: gatepass
+    - key: Environment
+      value: dev
+    - key: CostCenter
+      value: learning
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: alb
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+spec:
+  controller: ingress.k8s.aws/alb
+  parameters:
+    apiGroup: elbv2.k8s.aws
+    kind: IngressClassParams
+    name: alb

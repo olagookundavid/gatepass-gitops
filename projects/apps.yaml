@@ -1,0 +1,35 @@
+# AppProject "apps": the fence around the Gatepass services (from Phase 4 on).
+#
+# Narrow on purpose, because services are changed most often, by a bot (the image-bump pull
+# requests) as well as by people:
+#   * destinations: only namespaces named gatepass-*, never kube-system or argocd;
+#   * no cluster-scoped objects at all (no namespaces, no ClusterRoles, no CRDs): a service
+#     cannot widen its own permissions;
+#   * the platform team's objects are off limits: quotas, limit ranges and network policies
+#     are created by the platform project (cluster-config), not by a service's chart.
+# The generic chart lives in this repository, so this repository is the only source.
+#
+# Nothing uses this project until Phase 4; it exists now so the fence is reviewed before the
+# first service, not after. Related: projects/platform.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  description: Gatepass services (narrow fence).
+  sourceRepos:
+    - git@github.com:olagookundavid/gatepass-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "gatepass-*"
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+  orphanedResources:
+    warn: true

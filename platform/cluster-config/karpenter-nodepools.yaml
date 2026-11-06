@@ -1,0 +1,108 @@
+# Karpenter NodePools: WHAT kind of nodes may be created, how many, and when they go away.
+# Two pools, `general` (on-demand) and `spot` (cheap but interruptible, tainted). The HOW is
+# the EC2NodeClass `default` (karpenter-nodeclass.yaml).
+#
+# INSTANCE TYPES. Karpenter normally picks from hundreds of types; here it may pick from two,
+# and that is a constraint of this ACCOUNT, not a design choice: the Free plan only launches
+# eight types (CLAUDE.md "Environment"). Of those, only c7i-flex.large (2 vCPU, 4 GiB) and
+# m7i-flex.large (2 vCPU, 8 GiB) are big enough for real workloads on x86; the arm64 ones are
+# t4g.small and smaller. After the account is upgraded, replace the list by constraints
+# (instance category c/m/r, generation > 5, size not metal) and add arm64: Graviton is about
+# 20% cheaper. Both types are on-demand today: nothing here has been run on Spot yet.
+#
+# LIMITS cap the TOTAL CPU the pool may own (a runaway deployment cannot buy 100 nodes). The
+# account's On-Demand quota is 16 vCPU and the two system nodes use 4, so 8 vCPU here (4 nodes
+# at most) leaves headroom. `general` 8, `spot` 4.
+#
+# DISRUPTION (removing nodes):
+#   consolidationPolicy WhenEmptyOrUnderutilized   remove a node that is empty OR whose pods fit
+#                                                  on other nodes (Karpenter moves them first)
+#   consolidateAfter 1m   dev value so the lesson shows it within minutes; production waits 5-10
+#                         minutes so a short dip in load does not churn nodes
+#   budgets nodes "20%"   at most 20% of the pool's nodes (at least one) may be disrupted at
+#                         once for consolidation, expiry or drift
+# expireAfter 168h: every node is replaced after 7 days, which keeps nodes on a current AMI.
+#
+# SPOT pool: tainted gatepass.dev/spot=true:NoSchedule, so NOTHING lands there by accident; a
+# workload opts in with a matching toleration (and should be stateless and interruption-safe).
+# UNVERIFIED: Spot needs the service-linked role AWSServiceRoleForEC2Spot (it does not exist in
+# this account yet: 03b/04 walkthrough step "Spot role", needs my go) and the Free plan might
+# refuse Spot launches. While either is missing the pool stays empty and harmless: it only
+# acts when a pod that tolerates the taint is Pending.
+#
+# Related: karpenter-nodeclass.yaml, bootstrap/karpenter.yaml, gatepass-infra/30-platform-aws.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: general
+spec:
+  template:
+    metadata:
+      labels:
+        gatepass.dev/pool: general
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["c7i-flex.large", "m7i-flex.large"]
+      expireAfter: 168h
+  limits:
+    cpu: "8"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+    budgets:
+      - nodes: "20%"
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: spot
+spec:
+  template:
+    metadata:
+      labels:
+        gatepass.dev/pool: spot
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      taints:
+        - key: gatepass.dev/spot
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["c7i-flex.large", "m7i-flex.large"]
+      expireAfter: 168h
+  limits:
+    cpu: "4"
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+    budgets:
+      - nodes: "20%"

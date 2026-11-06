@@ -1,0 +1,52 @@
+# Child application: Karpenter's CustomResourceDefinitions (NodePool, NodeClaim, EC2NodeClass,
+# NodeOverlay, CapacityBuffer), sync-wave -2, version-locked to the controller in karpenter.yaml.
+#
+# WHY A SEPARATE APPLICATION. Helm installs the `crds/` folder of a chart once and never
+# upgrades it, so a CRD change shipped with a new Karpenter version would be silently skipped.
+# Karpenter publishes the CRDs as their own chart (karpenter-crd) for exactly this reason.
+# karpenter.yaml sets skipCrds: true so that the two charts do not both own the same objects.
+# Both use the SAME version (1.15.1): upgrade them in the same pull request.
+#
+# SERVER-SIDE APPLY is required: these CRDs are larger than the 256 KiB limit of the
+# annotation that a normal (client-side) apply stores, which makes the sync fail with
+# "metadata.annotations: Too long".
+#
+# SOURCE: an OCI registry (public.ecr.aws/karpenter), not a classic chart repository. Argo CD
+# must be told about it once: configs.repositories in platform/argocd/values.yaml. The URL has
+# no oci:// prefix in an Application. (UNVERIFIED until the first sync: if the application
+# shows "unable to resolve" the repository entry is missing or its url differs.)
+#
+# Related: karpenter.yaml (the controller), platform/cluster-config/karpenter-*.yaml (the
+# objects these CRDs define), projects/platform.yaml (allows the registry).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: public.ecr.aws/karpenter
+    chart: karpenter-crd
+    targetRevision: 1.15.1
+    helm:
+      releaseName: karpenter-crd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

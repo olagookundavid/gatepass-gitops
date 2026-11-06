@@ -1,0 +1,19 @@
+# ClusterIP Service in front of the nginx pods: a stable name (nginx.gatepass-smoke.svc) and a
+# stable address that spreads traffic over whichever pods are ready. The Ingress points at it;
+# with target-type ip the load balancer reads this Service's endpoints and sends traffic
+# straight to the pods, the Service's own address is not in the data path.
+# Related: deployment.yaml (the selector), ingress.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: nginx
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

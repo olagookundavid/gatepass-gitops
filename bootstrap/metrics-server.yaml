@@ -1,0 +1,48 @@
+# Child application: metrics-server, sync-wave -2.
+#
+# What it does: collects current CPU and memory use from every node and pod and serves it on
+# the Kubernetes API (metrics.k8s.io). Without it `kubectl top` fails and the Horizontal Pod
+# Autoscaler (Phase 9) has nothing to read. It is NOT a monitoring system: it keeps only the
+# latest numbers, no history (Prometheus does that, Phase 5).
+#
+# Wave -2 = first, with the Karpenter CRDs: it needs nothing else, and the HPA that will
+# need it comes much later.
+#
+# Related: platform/metrics-server/values.yaml, projects/platform.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/metrics-server
+      chart: metrics-server
+      targetRevision: 3.14.0
+      helm:
+        releaseName: metrics-server
+        valueFiles:
+          - $values/platform/metrics-server/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

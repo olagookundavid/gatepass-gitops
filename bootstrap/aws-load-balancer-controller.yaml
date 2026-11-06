@@ -1,0 +1,77 @@
+# Child application: the AWS Load Balancer Controller (LBC), sync-wave -1.
+#
+# What it does: watches Ingress objects of class `alb` and builds the real Application Load
+# Balancer, target groups, listeners and security-group rules in AWS; deletes them when the
+# Ingress is deleted; attaches the WAF web ACL named in the IngressClassParams
+# (platform/cluster-config/ingressclass-alb.yaml). Its AWS permissions come from EKS Pod
+# Identity (gatepass-infra/30-platform-aws/lbc.tf and pod-identity.tf).
+#
+# SOURCES (same two-source pattern as platform-argocd.yaml): the chart from the AWS eks-charts
+# repository at an exact version, and this repository (named `values`) for
+# platform/aws-load-balancer-controller/values.yaml. Chart 3.6.2 installs controller v3.6.2;
+# the IAM policy in 30-platform-aws is the one published for that tag, so upgrade both together.
+#
+# SYNC WAVE -1: after metrics-server and the CRDs (wave -2), before anything that creates an
+# Ingress (cluster-config at wave 10 and every service later).
+#
+# IGNORE DIFFERENCES: the chart generates the webhook's TLS certificate with Helm's genCA at
+# RENDER time, so every render (every Argo CD comparison) produces a different certificate.
+# Without these rules the application would be OutOfSync forever and selfHeal would rewrite
+# the webhook every few minutes. The certificate that is in the cluster is the one that
+# counts; Git must not say what it is.
+#
+# Related: projects/platform.yaml (allows this chart repository), the values file next to
+# this one's name, gatepass-infra/30-platform-aws (the role).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://aws.github.io/eks-charts
+      chart: aws-load-balancer-controller
+      targetRevision: 3.6.2
+      helm:
+        releaseName: aws-load-balancer-controller
+        valueFiles:
+          - $values/platform/aws-load-balancer-controller/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  ignoreDifferences:
+    - kind: Secret
+      name: aws-load-balancer-tls
+      jsonPointers:
+        - /data
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: aws-load-balancer-webhook
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: aws-load-balancer-webhook
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

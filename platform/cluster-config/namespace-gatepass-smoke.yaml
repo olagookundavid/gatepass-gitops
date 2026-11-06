@@ -1,0 +1,18 @@
+# The namespace of the throwaway test application (examples/smoke-nginx), created here and not
+# by the application itself: the `apps` project may not create cluster-scoped objects (a
+# namespace is one), by design (projects/apps.yaml). Every Gatepass namespace is created by
+# the platform in this folder, and carries the Pod Security labels (see namespace-smoke.yaml).
+#
+# The name starts with `gatepass-` because that is the only pattern the `apps` project may write
+# to. The namespace stays when the test application is removed: it is empty and free.
+#
+# Related: examples/smoke-nginx/ (what runs in it), projects/apps.yaml (the fence).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatepass-smoke
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd

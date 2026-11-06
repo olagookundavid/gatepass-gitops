@@ -1,0 +1,31 @@
+# The Ingress: "send HTTP requests for / to the nginx Service". All the load balancer settings
+# (shared ALB, internet-facing, target type, the WAF web ACL) come from the IngressClass `alb`
+# (platform/cluster-config/ingressclass-alb.yaml), so this file contains none of them: that
+# is the point of the class. Only the per-application part is here: the health check path.
+#
+# When the AWS load balancer controller sees this object it creates (or extends) the ALB named
+# gatepass-dev, a target group for this Service and a listener rule; `make url` / the walkthrough
+# reads the ALB's address from the Ingress status. Deleting this file from Git removes the rule,
+# and removing the last Ingress removes the ALB.
+#
+# No host rule, because there is no domain yet (Phase 6b adds `host:` per service): the rule
+# matches every request to the ALB's own AWS-generated name.
+# Related: service.yaml, platform/cluster-config/ingressclass-alb.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  name: http

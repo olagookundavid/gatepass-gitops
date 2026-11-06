@@ -1,0 +1,85 @@
+# CI for the gitops repository: cheap static checks, no cluster and no AWS access.
+#
+# Argo CD syncs this repository straight to the cluster, so a broken file here is a broken
+# cluster. These checks run on every pull request BEFORE merge (main is protected, the three
+# job names below are the required checks).
+#
+#   manifests-validate  every YAML file is valid Kubernetes / Argo CD API (kubeconform)
+#   argocd-values       every Helm chart an Application installs renders with its pinned version
+#                       and our values (helm template; Argo CD's own configuration included)
+#   gitleaks            no secret anywhere in the history
+#
+# Every `uses:` is pinned to a full commit SHA; downloaded programs are pinned by version AND
+# SHA-256 checksum.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  manifests:
+    name: manifests-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install kubeconform (pinned, checksum verified)
+        env:
+          KUBECONFORM_VERSION: v0.8.0
+          KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check
+          tar -xzf kubeconform.tar.gz kubeconform
+      # Built-in Kubernetes kinds are checked against the official schemas. Argo CD's own kinds
+      # (Application, AppProject) are checked against the community CRD schema catalogue; that
+      # catalogue is data, not code, but it is not pinned (a deliberate shortcut, decision log).
+      - name: Validate manifests
+        run: |
+          ./kubeconform -strict -summary -ignore-filename-pattern 'values\.yaml$' \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            bootstrap projects platform examples
+
+  argocd-values:
+    name: argocd-values
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # hack/render-charts.rb reads every Application in bootstrap/ that installs a Helm chart
+      # and renders it with the exact version and values file the Application names: there is
+      # no second list of charts to keep in sync (Argo CD's own version is read the same way).
+      # Karpenter's charts come from an OCI registry; the runner reads them anonymously.
+      - name: Render every chart with our values
+        run: ruby hack/render-charts.rb
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned, checksum verified)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan the whole git history
+        run: ./gitleaks git --no-banner --redact --verbose .

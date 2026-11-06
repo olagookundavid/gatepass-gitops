@@ -1,0 +1,57 @@
+# Child application: the Karpenter controller, sync-wave -1.
+#
+# What it does: watches for pods that cannot be scheduled and launches the cheapest EC2
+# instance that fits them (within the limits of the NodePools in platform/cluster-config),
+# then removes nodes that are empty or can be packed tighter (consolidation). It replaces the
+# cluster autoscaler of older setups: no node groups to size in advance, any allowed instance
+# type, minutes to a new node. Its AWS permissions come from EKS Pod Identity
+# (gatepass-infra/30-platform-aws/karpenter-iam.tf) and the interruption queue from
+# karpenter-queue.tf.
+#
+# The controller runs ON THE SYSTEM NODES (it tolerates CriticalAddonsOnly by default and the
+# chart forbids it from running on Karpenter-made nodes): the thing that creates nodes must not
+# depend on a node it created itself.
+#
+# skipCrds: true because the CRDs are installed, and upgraded, by karpenter-crd.yaml.
+# Same version as karpenter-crd: upgrade both in one pull request.
+#
+# Related: values in platform/karpenter/values.yaml, NodePools in
+# platform/cluster-config/karpenter-nodepools.yaml, projects/platform.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: public.ecr.aws/karpenter
+      chart: karpenter
+      targetRevision: 1.15.1
+      helm:
+        releaseName: karpenter
+        skipCrds: true
+        valueFiles:
+          - $values/platform/karpenter/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

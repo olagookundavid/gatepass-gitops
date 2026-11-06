@@ -1,0 +1,66 @@
+# Child application 2: Argo CD manages ITSELF.
+#
+# Terraform installed Argo CD once, with a minimal configuration (argocd-bootstrap-values.yaml
+# in gatepass-infra). This application points at the same chart, at the same pinned version,
+# with the FULL configuration in platform/argocd/values.yaml. From the first sync on, a change
+# to how Argo CD behaves (SSO, notifications, timeouts) is a pull request here, not a
+# `helm upgrade`; Argo CD applies it to itself.
+#
+# TWO SOURCES (multiple-source application):
+#   1. the Helm chart, from the Argo project's chart repository, version pinned;
+#   2. this Git repository, named `values`, so that the first source can say
+#      valueFiles: $values/platform/argocd/values.yaml ("the file in source named values").
+#
+# SAFETY CHOICES
+#   prune: false      Argo CD must never delete objects of its own installation because a
+#                     rendering went wrong; a leftover object is a lesser evil than a missing
+#                     server. selfHeal stays on: manual edits of Argo CD's objects are undone.
+#   ignoreDifferences on the argocd-secret data: Argo CD itself writes its signing key and
+#                     session secrets into that Secret at runtime; Git cannot, and must not,
+#                     say what they are.
+#   RespectIgnoreDifferences: apply the ignore rule when syncing too, not only when comparing.
+#   no finalizer:     see the comment on metadata below.
+#
+# TO UPGRADE Argo CD: change targetRevision here AND var.argocd_chart_version in
+# gatepass-infra/25-gitops-bootstrap (so that tomorrow's rebuild installs the same version).
+#
+# Related: platform/argocd/values.yaml (the configuration), projects/platform.yaml (its
+# fence), root.tf in gatepass-infra (who applies this file).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  # NO resources-finalizer here, unlike the other child applications: deleting this application
+  # (for example when the root is deleted at teardown) must NOT make Argo CD delete its own
+  # server and controller while they are still working. Terraform removes Argo CD (helm_release).
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.11.6
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/platform/argocd/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  ignoreDifferences:
+    - kind: Secret
+      name: argocd-secret
+      jsonPointers:
+        - /data
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true

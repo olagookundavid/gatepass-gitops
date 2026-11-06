@@ -1,0 +1,10 @@
+# Dependabot opens pull requests that bump pinned versions. Nothing is upgraded silently:
+# every bump is a PR that has to pass CI (plan rule 5: upgrade on purpose, through a PR).
+# It keeps the commit SHAs in .github/workflows/*.yaml current. Helm chart versions in the
+# Application files are bumped by hand, on purpose (see README.md, "Upgrading Argo CD").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

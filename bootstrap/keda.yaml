@@ -1,0 +1,70 @@
+# Child application: KEDA (Kubernetes Event-driven Autoscaling), sync-wave 0.
+#
+# What it does: scales a Deployment by the length of a queue (or another event source), down to
+# ZERO pods when there is nothing to do and back up when messages arrive. The ordinary
+# Horizontal Pod Autoscaler can only follow CPU and memory. Gatepass uses it from Phase 9 for
+# the SQS-driven workers (notifications, the orders outbox relay). It is installed now, with
+# the other platform controllers, so that Phase 9 only adds ScaledObjects.
+#
+# KEDA reads SQS with the identity of its OPERATOR pod; the Pod Identity role for that is
+# added to gatepass-infra/30-platform-aws in Phase 9 (nothing in AWS is needed today).
+#
+# IGNORE DIFFERENCES: KEDA's operator creates its own certificates at start-up and writes the
+# CA into the metrics APIService and the admission webhook. Git cannot know that value.
+#
+# Related: platform/keda/values.yaml, projects/platform.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keda
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kedacore.github.io/charts
+      chart: keda
+      targetRevision: 2.21.0
+      helm:
+        releaseName: keda
+        valueFiles:
+          - $values/platform/keda/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+  ignoreDifferences:
+    - group: apiregistration.k8s.io
+      kind: APIService
+      name: v1beta1.external.metrics.k8s.io
+      jsonPointers:
+        - /spec/caBundle
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: keda-admission
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,49 @@
+# EXAMPLE, NOT ACTIVE. Argo CD only reads bootstrap/, platform/ and projects/; this folder is
+# inert until the walkthrough tells you to activate it:
+#
+#   git mv examples/smoke-nginx/application.yaml bootstrap/smoke-nginx.yaml     (in a pull request)
+#
+# Merging that makes the root application create this Application, which deploys app/ into the
+# namespace gatepass-smoke. To remove it again: `git rm bootstrap/smoke-nginx.yaml` in another
+# pull request. The finalizer then deletes the Ingress, the AWS load balancer controller
+# deletes the ALB, and the cost goes away: that is half of the Phase 3 gate.
+#
+# It uses the `apps` project, so it also proves that fence: it can write to gatepass-* namespaces
+# only, and only namespaced kinds (it cannot create the namespace, platform/cluster-config does).
+#
+# ignoreDifferences on the `inflate` Deployment's replicas: the Karpenter test scales it by
+# hand (`kubectl scale`), and without this rule selfHeal would put it back to 0 within seconds.
+# That is a deliberate, narrow hole: only that one field of that one object.
+#
+# Sync wave 20 = after cluster-config (10), which creates the namespace and the IngressClass.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smoke-nginx
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: apps
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: examples/smoke-nginx/app
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gatepass-smoke
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: inflate
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
