@@ -1,0 +1,28 @@
+# Child application: delivers the ApplicationSet that turns apps/<name>/ into running services.
+# Wave 5: after the add-ons (waves -2 to 0) and before cluster-config's smoke objects (10), so
+# the load balancer controller, External Secrets and KEDA exist when the first service appears.
+# Project platform because an ApplicationSet is cluster-wide machinery, not a service.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: services
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/services
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

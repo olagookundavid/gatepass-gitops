@@ -1,0 +1,11 @@
+{{- /* A ClusterIP Service: the stable in-cluster name (<service>.<namespace>.svc) other services and the ALB target. */ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "gps.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: http, port: {{ .Values.port }}, targetPort: http}

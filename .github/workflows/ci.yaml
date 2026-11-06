@@ -51,6 +51,43 @@ jobs:
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             bootstrap projects platform examples
 
+  charts:
+    name: charts-render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install kubeconform (pinned, checksum verified)
+        env:
+          KUBECONFORM_VERSION: v0.8.0
+          KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum --check
+          tar -xzf kubeconform.tar.gz kubeconform
+      # Every service under apps/ is rendered with the generic chart exactly as Argo CD will
+      # (values.yaml, then dev.yaml when it exists), with a fake registry host (the real one is
+      # injected by the ApplicationSet), linted against values.schema.json, then schema-checked.
+      # A service that has no image pin yet is rendered with a placeholder digest.
+      - name: Render and validate every service
+        run: |
+          set -euo pipefail
+          registry=000000000000.dkr.ecr.us-east-1.amazonaws.com
+          for d in apps/*/; do
+            name=$(basename "$d")
+            pin="${d}dev.yaml"
+            args=(-f "${d}values.yaml")
+            if [ -f "$pin" ]; then args+=(-f "$pin"); else
+              printf 'image:\n  tag: sha-0000000\n  digest: sha256:%064d\n' 0 > /tmp/pin.yaml; args+=(-f /tmp/pin.yaml); fi
+            echo "== $name"
+            helm lint charts/gatepass-service "${args[@]}" --set image.registry=$registry
+            helm template "$name" charts/gatepass-service "${args[@]}" --set image.registry=$registry \
+              | ./kubeconform -strict -summary \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          done
+
   argocd-values:
     name: argocd-values
     runs-on: ubuntu-24.04

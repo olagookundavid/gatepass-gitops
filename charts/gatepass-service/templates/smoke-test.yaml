@@ -1,0 +1,47 @@
+{{- /*
+The deployment's last gate: a PostSync hook, run by Argo CD after all objects are healthy. It
+calls the service THROUGH its Service name (the path real clients' traffic takes inside the
+cluster) and fails unless /readyz answers. A failed hook marks the sync Failed, which turns the
+Application unhealthy and sends the Slack message; a bad image never looks like a good release.
+Image: busybox by digest (wget only; no shell tricks, runs as non-root on a read-only root).
+*/ -}}
+{{- if .Values.smokeTest.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gps.fullname" . }}-smoke
+  labels: {{- include "gps.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: {{- include "gps.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: smoke
+          image: {{ .Values.smokeTest.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              url="http://{{ include "gps.fullname" . }}:{{ .Values.port }}{{ .Values.basePath }}{{ .Values.smokeTest.path }}"
+              i=0
+              while [ "$i" -lt {{ .Values.smokeTest.attempts }} ]; do
+                if wget -q -T 3 -O /dev/null "$url"; then echo "OK $url"; exit 0; fi
+                i=$((i+1)); echo "attempt $i failed: $url"; sleep 2
+              done
+              echo "smoke test FAILED: $url"; exit 1
+          resources:
+            requests: {cpu: 10m, memory: 8Mi}
+            limits: {memory: 32Mi}
+          securityContext: {{- include "gps.containerSecurity" . | nindent 12 }}
+{{- end }}

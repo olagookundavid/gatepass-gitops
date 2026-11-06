@@ -1,0 +1,18 @@
+# The ONE chart every Gatepass service is deployed with (api, worker, relay: same chart, different
+# values). A new service is a new values file under apps/<service>/, never a new chart: the
+# security settings, probes, labels and shutdown behaviour are decided once, here, in review.
+#
+# This chart is NOT published anywhere. Argo CD reads it straight from this repository
+# (bootstrap/services.yaml uses `path: charts/gatepass-service`), so a chart change and the
+# values that need it travel in one pull request. `version` is bumped when the chart's own
+# interface changes (a new required value); `appVersion` is unused because the application
+# version is the image tag in each service's values file.
+#
+# Related: values.yaml (defaults), values.schema.json (the rules Helm enforces before rendering),
+# templates/, platform/services/applicationset.yaml (creates one Application per apps/*/dev.yaml).
+apiVersion: v2
+name: gatepass-service
+description: Generic chart for a Gatepass Go service (HTTP API and/or worker).
+type: application
+version: 0.1.0
+appVersion: "0.0.0"
