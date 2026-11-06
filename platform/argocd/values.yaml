@@ -96,6 +96,12 @@ notifications:
           method: POST
           body: |
             {"text": ":x: *{{.app.metadata.name}}*: sync FAILED (revision {{.app.status.sync.revision}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
+    template.app-deployed: |
+      webhook:
+        slack:
+          method: POST
+          body: |
+            {"text": ":white_check_mark: *{{.app.metadata.name}}*: deployed and healthy (revision {{.app.status.sync.revision}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
     template.app-health-degraded: |
       webhook:
         slack:
@@ -109,11 +115,21 @@ notifications:
     trigger.on-sync-failed: |
       - when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
         send: [app-sync-failed]
+    trigger.on-deployed: |
+      - when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        oncePer: app.status.sync.revision
+        send: [app-deployed]
     trigger.on-health-degraded: |
       - when: app.status.health.status == 'Degraded'
         send: [app-health-degraded]
 
-  # TO WHOM: every application, both triggers, the notifier named `slack`. A webhook notifier is
+  # TO WHOM: failures go to every application; "deployed and healthy" only to the SERVICES (the
+  # Applications the ApplicationSet creates carry the label app.kubernetes.io/part-of=gatepass),
+  # because the add-ons and Argo CD itself sync constantly and would drown the channel. Production
+  # often sends the success messages to a separate channel. `oncePer` sends once per Git revision.
+  # UNVERIFIED until the first service is released (walkthrough 05, step F).
+  #
+  # (failures:) every application, both triggers, the notifier named `slack`. A webhook notifier is
   # addressed by its own NAME with no `:recipient` (`webhook:slack` fails with "notification
   # service 'webhook' is not supported", found 2026-11-06).
   subscriptions:
@@ -122,3 +138,8 @@ notifications:
       triggers:
         - on-sync-failed
         - on-health-degraded
+    - recipients:
+        - slack
+      selector: app.kubernetes.io/part-of=gatepass
+      triggers:
+        - on-deployed
