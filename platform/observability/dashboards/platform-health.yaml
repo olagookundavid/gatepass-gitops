@@ -1,0 +1,311 @@
+# Grafana dashboard as code: Platform health. The sidecar of the Grafana chart loads every
+# ConfigMap labelled grafana_dashboard=1 in the observability namespace; a change is a pull
+# request, and a dashboard edited by hand in the UI is overwritten (Grafana keeps no state).
+# Panels use the data sources provisioned in platform/grafana/values.yaml (uids amp, cloudwatch, xray).
+# UNVERIFIED until telemetry flows: the exact metric names (the OTLP-to-Prometheus conversion,
+# kubeletstats and Karpenter metric names); walkthrough 06 step F lists the queries that prove them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-platform-health
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    grafana_folder: Gatepass
+data:
+  dashboard-platform-health.json: |
+    {
+      "uid": "gatepass-platform",
+      "title": "Platform health",
+      "schemaVersion": 39,
+      "version": 1,
+      "tags": [
+        "gatepass",
+        "platform"
+      ],
+      "time": {
+        "from": "now-3h",
+        "to": "now"
+      },
+      "refresh": "1m",
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Nodes Ready",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Pods Pending",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(kube_pod_status_phase{phase=\"Pending\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Argo CD apps Degraded",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(argocd_app_info{health_status=\"Degraded\"}) or vector(0)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Deployments with unavailable replicas",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(kube_deployment_status_replicas_unavailable > 0) or vector(0)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Pods by phase",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (phase) (kube_pod_status_phase)",
+              "legendFormat": "{{phase}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Argo CD applications by health",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (health_status) (argocd_app_info)",
+              "legendFormat": "{{health_status}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Node CPU usage (cores)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 12
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "k8s_node_cpu_usage",
+              "legendFormat": "{{k8s_node_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Node memory working set",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 12
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "k8s_node_memory_working_set",
+              "legendFormat": "{{k8s_node_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Karpenter NodeClaims",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (nodepool) (karpenter_nodeclaims_created_total)",
+              "legendFormat": "{{nodepool}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Argo CD sync operations",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (phase) (rate(argocd_app_sync_total[10m]))",
+              "legendFormat": "{{phase}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

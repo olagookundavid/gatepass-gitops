@@ -31,6 +31,16 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- define "gps.env" -}}
 - {name: HTTP_ADDR, value: {{ printf ":%d" (int .Values.port) | quote }}}
 - {name: BASE_PATH, value: {{ .Values.basePath | quote }}}
+{{- if .Values.telemetry.enabled }}
+- {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ .Values.telemetry.endpoint | quote }}}
+- {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "http/protobuf"}
+- {name: OTEL_SERVICE_NAME, value: {{ include "gps.fullname" . | quote }}}
+- {name: OTEL_RESOURCE_ATTRIBUTES, value: {{ printf "deployment.environment=%s,service.version=%s" .Values.telemetry.environment .Values.image.tag | quote }}}
+- {name: OTEL_TRACES_SAMPLER, value: {{ .Values.telemetry.sampler | quote }}}
+{{- if .Values.telemetry.samplerArg }}
+- {name: OTEL_TRACES_SAMPLER_ARG, value: {{ .Values.telemetry.samplerArg | quote }}}
+{{- end }}
+{{- end }}
 {{- range $k, $v := .Values.env }}
 - {name: {{ $k }}, value: {{ $v | quote }}}
 {{- end }}

@@ -1,0 +1,212 @@
+# Grafana dashboard as code: Service RED (rate, errors, duration). The sidecar of the Grafana chart loads every
+# ConfigMap labelled grafana_dashboard=1 in the observability namespace; a change is a pull
+# request, and a dashboard edited by hand in the UI is overwritten (Grafana keeps no state).
+# Panels use the data sources provisioned in platform/grafana/values.yaml (uids amp, cloudwatch, xray).
+# UNVERIFIED until telemetry flows: the exact metric names (the OTLP-to-Prometheus conversion,
+# kubeletstats and Karpenter metric names); walkthrough 06 step F lists the queries that prove them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-service-red
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    grafana_folder: Gatepass
+data:
+  dashboard-service-red.json: |
+    {
+      "uid": "gatepass-red",
+      "title": "Service RED (rate, errors, duration)",
+      "schemaVersion": 39,
+      "version": 1,
+      "tags": [
+        "gatepass",
+        "slo"
+      ],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "type": "query",
+            "label": "service",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "amp"
+            },
+            "query": {
+              "query": "label_values(http_server_request_duration_seconds_count, service_name)",
+              "refId": "s"
+            },
+            "refresh": 2,
+            "includeAll": false,
+            "multi": false
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Request rate by status class",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[5m]))",
+              "legendFormat": "{{http_response_status_code}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Error ratio (5xx), SLO 99.5% non-5xx",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"$service\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"$service\"}[5m]))",
+              "legendFormat": "5xx ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Latency p50 / p95 / p99 (SLO: p95 < 300 ms)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "C",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Ready vs desired replicas",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "amp"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_deployment_status_replicas_ready{deployment=\"$service\"}",
+              "legendFormat": "ready"
+            },
+            {
+              "refId": "B",
+              "expr": "kube_deployment_spec_replicas{deployment=\"$service\"}",
+              "legendFormat": "desired"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "logs",
+          "title": "Logs (CloudWatch Logs Insights): errors of this service",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryMode": "Logs",
+              "region": "us-east-1",
+              "id": "",
+              "expression": "fields @timestamp, @message | filter attributes.level = 'error' | sort @timestamp desc | limit 50",
+              "logGroups": [
+                {
+                  "arn": "",
+                  "name": "/gatepass/dev/application"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }

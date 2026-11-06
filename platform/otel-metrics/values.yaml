@@ -1,0 +1,112 @@
+# METRICS collector: scrapes the platform's own metrics (the Prometheus way: it asks each target
+# for its numbers every 30 seconds) and pushes them to the Prometheus workspace. ONE replica: a
+# second copy would scrape everything twice. (Production shards targets with the target allocator
+# when one replica is no longer enough.)
+#
+# WHAT IT SCRAPES
+#   kube-state-metrics   what Kubernetes THINKS: desired vs ready replicas, pod phase, node
+#                        conditions. The base of the platform alerts (rules/platform.yaml).
+#   Argo CD              application sync and health (argocd_app_info), controller, server, repo-server
+#   Karpenter            nodeclaims, pending pods, provisioning decisions
+# Services do NOT appear here: they PUSH OpenTelemetry metrics to the gateway.
+#
+# Targets are named by their in-cluster DNS names (stable, readable); the Argo CD metrics services
+# exist because platform/argocd/values.yaml enables them.
+#
+# UNVERIFIED until the first run: the Argo CD and Karpenter service names and ports (checked in
+# the charts: argocd-application-controller-metrics:8082, argocd-server-metrics:8083,
+# argocd-repo-server-metrics:8084, karpenter:8080) and that the Karpenter chart exposes the
+# metrics Service without a ServiceMonitor.
+#
+# Related: bootstrap/otel-metrics.yaml, platform/otel-gateway (the same image and service account).
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+  tag: ""
+  digest: sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
+command:
+  name: otelcol-contrib
+
+# The gateway release creates the service account `otel-collector` (one write-only IAM role for
+# all collectors); this release reuses it.
+serviceAccount:
+  create: false
+  name: otel-collector
+
+extraEnvsFrom:
+  - secretRef:
+      name: observability-endpoints
+
+resources:
+  requests: {cpu: 100m, memory: 192Mi}
+  limits: {memory: 384Mi}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}
+
+ports:
+  otlp: {enabled: false}
+  otlp-http: {enabled: false}
+  jaeger-compact: {enabled: false}
+  jaeger-thrift: {enabled: false}
+  jaeger-grpc: {enabled: false}
+  zipkin: {enabled: false}
+
+config:
+  extensions:
+    health_check:
+      endpoint: ${env:MY_POD_IP}:13133
+    sigv4auth:
+      region: us-east-1
+      service: aps
+  receivers:
+    otlp: null
+    jaeger: null
+    zipkin: null
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: kube-state-metrics
+            scrape_interval: 30s
+            static_configs:
+              - targets: ["kube-state-metrics.observability.svc:8080"]
+          - job_name: argocd
+            scrape_interval: 30s
+            static_configs:
+              - targets:
+                  - argocd-application-controller-metrics.argocd.svc:8082
+                  - argocd-server-metrics.argocd.svc:8083
+                  - argocd-repo-server-metrics.argocd.svc:8084
+          - job_name: karpenter
+            scrape_interval: 30s
+            static_configs:
+              - targets: ["karpenter.kube-system.svc:8080"]
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    batch: {}
+  exporters:
+    debug: null
+    prometheusremotewrite:
+      endpoint: ${env:AMP_REMOTE_WRITE_URL}
+      auth:
+        authenticator: sigv4auth
+  service:
+    extensions: [health_check, sigv4auth]
+    pipelines:
+      traces: null
+      logs: null
+      metrics:
+        receivers: [prometheus]
+        processors: [memory_limiter, batch]
+        exporters: [prometheusremotewrite]

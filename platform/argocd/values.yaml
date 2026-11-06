@@ -71,6 +71,19 @@ configs:
             clientID: $argocd-dex-github:dex.github.clientID
             clientSecret: $argocd-dex-github:dex.github.clientSecret
 
+# Prometheus metrics endpoints of Argo CD's components (plain Services, no ServiceMonitor: the
+# collector scrapes them by name, platform/otel-metrics/values.yaml). They give argocd_app_info
+# (sync and health per application), which the ArgoApplicationDegraded alert uses.
+controller:
+  metrics:
+    enabled: true
+server:
+  metrics:
+    enabled: true
+repoServer:
+  metrics:
+    enabled: true
+
 notifications:
   secret:
     # argocd-notifications-secret is created by Terraform (Slack webhook URL).

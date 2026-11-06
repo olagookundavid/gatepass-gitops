@@ -40,6 +40,18 @@ probes:
   readiness: {periodSeconds: 5, failureThreshold: 3}
   liveness: {periodSeconds: 10, failureThreshold: 3}
 
+# --- telemetry: the service pushes traces and metrics (OpenTelemetry, OTLP over HTTP) to the
+# gateway collector (platform/otel-gateway). The Go services read these standard variables; with
+# no endpoint the SDK is a no-op. service.name is the release name, so one name in metrics, traces
+# and logs. Sampling: parent-based, 100% in dev (the ratio is the decision recorded in the
+# decision log; production 0.05).
+telemetry:
+  enabled: true
+  endpoint: http://otel-gateway-opentelemetry-collector.observability.svc:4318
+  environment: dev
+  sampler: parentbased_traceidratio
+  samplerArg: "1"
+
 # --- exposure
 service:
   type: ClusterIP
