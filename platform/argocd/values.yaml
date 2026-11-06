@@ -113,10 +113,12 @@ notifications:
       - when: app.status.health.status == 'Degraded'
         send: [app-health-degraded]
 
-  # TO WHOM: every application, both triggers, the Slack webhook.
+  # TO WHOM: every application, both triggers, the notifier named `slack`. A webhook notifier is
+  # addressed by its own NAME with no `:recipient` (`webhook:slack` fails with "notification
+  # service 'webhook' is not supported", found 2026-11-06).
   subscriptions:
     - recipients:
-        - webhook:slack
+        - slack
       triggers:
         - on-sync-failed
         - on-health-degraded
