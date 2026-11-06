@@ -1,0 +1,14 @@
+# The namespace of the walking skeleton (service `skeleton`, namespace gatepass-skeleton).
+# One namespace per service, created HERE and not by the service's Application: the `apps`
+# project may not create cluster-scoped objects (a Namespace is one). Pod Security `restricted`
+# is enforced, so the chart's non-root, read-only, no-capabilities settings are required, not
+# optional. The next services add their own file next to this one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatepass-skeleton
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd

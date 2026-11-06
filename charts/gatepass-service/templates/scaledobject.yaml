@@ -1,0 +1,15 @@
+{{- /* Event-driven scaling (queue depth) with KEDA, for the workers. Triggers are passed through as written. */ -}}
+{{- if .Values.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {name: {{ include "gps.fullname" . }}}
+  minReplicaCount: {{ .Values.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  triggers: {{- toYaml .Values.keda.triggers | nindent 4 }}
+{{- end }}

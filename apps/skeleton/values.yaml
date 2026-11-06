@@ -1,0 +1,23 @@
+# The walking skeleton's settings (human-owned, changed by pull request like everything else).
+# The image pin (tag and digest) is NOT here: it is apps/skeleton/dev.yaml, written only by the
+# release workflow of gatepass-app. Keeping the two apart means a person never edits what the bot
+# owns and the bot never touches what a person decided.
+#
+# The skeleton is the real delivery path with nothing behind it: no database, no secrets, no
+# AWS permissions. It exists to prove build -> sign -> push -> pull request -> Argo CD ->
+# smoke test works before any business service depends on it (walkthrough 05).
+image:
+  repository: gatepass/skeleton-api
+basePath: /skeleton
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+resources:
+  requests: {cpu: 50m, memory: 32Mi}
+  limits: {memory: 64Mi}
+ingress:
+  enabled: true
+smokeTest:
+  enabled: true
+  path: /readyz

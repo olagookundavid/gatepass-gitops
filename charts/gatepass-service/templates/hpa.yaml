@@ -1,0 +1,18 @@
+{{- /* CPU-based autoscaling. Mutually exclusive with KEDA (two autoscalers on one Deployment fight). */ -}}
+{{- if and .Values.autoscaling.enabled .Values.keda.enabled }}{{ fail "autoscaling and keda cannot both be enabled" }}{{ end }}
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ include "gps.fullname" . }}}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}}
+{{- end }}

@@ -1,0 +1,87 @@
+# Defaults for every service. A service's own file (apps/<name>/dev.yaml) overrides only what
+# differs. Required values (image, basePath) have NO default on purpose: a service that forgets
+# them fails `helm template` in CI instead of deploying something half-configured.
+# Rules for each key are in values.schema.json.
+
+# --- image: deployed by DIGEST. `tag` is only a human label (the commit); the digest decides
+# which bytes run. The release workflow writes both (gatepass-app/.github/workflows).
+# `registry` is NOT in Git: it contains the AWS account id and this repository is public. The
+# ApplicationSet fills it from an annotation on the in-cluster Argo CD cluster Secret that
+# Terraform creates (25-gitops-bootstrap/cluster.tf).
+image:
+  registry: ""     # <account>.dkr.ecr.<region>.amazonaws.com  (injected, never written in Git)
+  repository: ""   # gatepass/<binary>
+  tag: ""          # sha-1a2b3c4
+  digest: ""       # sha256:<64 hex>
+  pullPolicy: IfNotPresent
+
+# --- identity of the process
+port: 8080                  # container and Service port (HTTP_ADDR)
+basePath: ""                # public route prefix, e.g. /skeleton ; Ingress and probes use it
+env: {}                     # plain, non-secret environment variables (a map)
+
+# --- pods
+replicaCount: 2             # ignored when autoscaling or keda is enabled
+resources:
+  requests: {cpu: 50m, memory: 32Mi}
+  limits: {memory: 64Mi}    # a memory limit (OOM-kill beats a noisy neighbour), NO CPU limit (no throttling)
+terminationGracePeriodSeconds: 30
+nodeSelector: {}
+tolerations: []             # e.g. the spot taint for a stateless worker
+topologySpread: true        # spread replicas over zones and nodes (best effort)
+
+serviceAccount:
+  create: true
+  name: ""                  # default: the release name. Pod Identity binds an AWS role to this name.
+  annotations: {}
+
+probes:
+  startup: {failureThreshold: 30, periodSeconds: 2}
+  readiness: {periodSeconds: 5, failureThreshold: 3}
+  liveness: {periodSeconds: 10, failureThreshold: 3}
+
+# --- exposure
+service:
+  type: ClusterIP
+ingress:
+  enabled: true             # false for internal-only services and workers (no route at all)
+  className: alb            # the IngressClass of platform/cluster-config/ingressclass-alb.yaml
+
+# --- scaling (use at most one)
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+keda:
+  enabled: false
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 30
+  cooldownPeriod: 300
+  triggers: []              # raw KEDA triggers, e.g. aws-sqs-queue
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# --- secrets (External Secrets copies them from Secrets Manager into a Kubernetes Secret)
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  storeName: aws-secretsmanager
+  data: []                  # [{secretKey: DB_PASSWORD, key: gatepass/dev/app/x, property: password}]
+
+# --- database migrations: a Job in the Sync phase, wave -1 (runs before the Deployment is updated)
+migration:
+  enabled: false
+  args: ["migrate"]
+  env: {}                   # overrides for the migrate user (e.g. DB_USER)
+  serviceAccountName: ""    # default: the release service account
+
+# --- smoke test: a PostSync hook that must succeed or the deployment is reported as failed
+smokeTest:
+  enabled: true
+  path: /readyz             # appended to basePath
+  attempts: 30              # one per 2 seconds
+  image: public.ecr.aws/docker/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec

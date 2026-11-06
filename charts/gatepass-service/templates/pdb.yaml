@@ -1,0 +1,12 @@
+{{- /* Voluntary disruptions (node drain, Karpenter consolidation) may not take the last ready pod. */ -}}
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels: {{- include "gps.selectorLabels" . | nindent 6 }}
+{{- end }}

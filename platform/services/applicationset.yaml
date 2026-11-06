@@ -1,0 +1,84 @@
+# ONE ApplicationSet creates ONE Argo CD Application per service directory under apps/.
+# A service appears the moment its pin file apps/<name>/dev.yaml exists (the release workflow
+# creates it with the first image) and disappears (pruned, with its namespace contents) when the
+# directory is deleted. Nobody writes an Application by hand for a service.
+#
+# HOW THE PIECES JOIN
+#   generator 1 (clusters)  the in-cluster Argo CD cluster Secret labelled
+#                           gatepass.dev/environment=dev. Its annotation carries the ECR registry
+#                           host (the AWS account id, which must not be written in this public
+#                           repository). Terraform creates the Secret: 25-gitops-bootstrap/cluster.tf.
+#   generator 2 (git files) every apps/*/dev.yaml. `.path.basename` is the directory name, which is
+#                           the service name.
+#   matrix                  every combination: for the one dev cluster, every service.
+#   template                a multi-source Application: the chart from charts/gatepass-service, the
+#                           values from apps/<name>/values.yaml (people) and apps/<name>/dev.yaml
+#                           (the bot), plus the registry as a Helm parameter.
+#
+# SAFETY
+#   project apps           the narrow fence (projects/apps.yaml): only gatepass-* namespaces, no
+#                          cluster-scoped objects, only this repository as a source.
+#   namespace              gatepass-<name> must already exist (platform/cluster-config creates it
+#                          with Pod Security `restricted`); `apps` may not create cluster objects.
+#   goTemplate missingkey=error   a typo in a variable name fails the generator instead of
+#                          silently producing an empty string.
+#
+# Related: charts/gatepass-service, apps/<name>/, bootstrap/services.yaml (the Application that
+# delivers this file), platform/cluster-config/namespace-gatepass-skeleton.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: services
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  gatepass.dev/environment: dev
+          - git:
+              repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+              revision: main
+              files:
+                - path: apps/*/dev.yaml
+  template:
+    metadata:
+      name: '{{ .path.basename }}'
+      labels:
+        app.kubernetes.io/part-of: gatepass
+        gatepass.dev/environment: dev
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: apps
+      sources:
+        - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+          targetRevision: main
+          path: charts/gatepass-service
+          helm:
+            releaseName: '{{ .path.basename }}'
+            valueFiles:
+              - '$values/apps/{{ .path.basename }}/values.yaml'
+              - '$values/apps/{{ .path.basename }}/dev.yaml'
+            parameters:
+              - name: image.registry
+                value: '{{ index .metadata.annotations "gatepass.dev/ecr-registry" }}'
+        - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'gatepass-{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+        retry:
+          limit: 3
+          backoff: {duration: 20s, factor: 2, maxDuration: 3m}

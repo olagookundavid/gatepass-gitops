@@ -1,0 +1,29 @@
+{{- /*
+A route on the ONE shared ALB. Everything shared (internet-facing, ip targets, the WAF, the
+group name that merges all Ingresses into one load balancer) comes from the IngressClassParams
+of the class (platform/cluster-config/ingressclass-alb.yaml); this Ingress only adds a path
+rule and says where the health check goes. The path is NOT rewritten: the service itself
+serves under its base path (contracts: "the Ingress does not strip it").
+*/ -}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: {{ printf "%s/readyz" .Values.basePath | quote }}
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/deregistration-delay.timeout_seconds: "30"
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - http:
+        paths:
+          - path: {{ .Values.basePath }}
+            pathType: Prefix
+            backend:
+              service: {name: {{ include "gps.fullname" . }}, port: {name: http}}
+{{- end }}

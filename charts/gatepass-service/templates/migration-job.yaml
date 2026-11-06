@@ -1,0 +1,51 @@
+{{- /*
+Database migrations run as a Job BEFORE the Deployment is updated: a Sync-phase hook at wave -1
+(not PreSync: PreSync runs before the ServiceAccount exists). The same image runs `<binary>
+migrate`. BeforeHookCreation deletes the previous run so a new sync can create it again.
+Migrations must be expand/contract (backward compatible), because `git revert` does not undo them.
+*/ -}}
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gps.fullname" . }}-migrate
+  labels: {{- include "gps.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: {{- include "gps.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.migration.serviceAccountName | default (include "gps.serviceAccountName" .) }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: {{ include "gps.image" . | quote }}
+          args: {{- toYaml .Values.migration.args | nindent 12 }}
+          env:
+            {{- include "gps.env" . | nindent 12 }}
+            {{- range $k, $v := .Values.migration.env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          {{- if .Values.externalSecret.enabled }}
+          envFrom:
+            - secretRef: {name: {{ include "gps.fullname" . }}-secrets}
+          {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {{- include "gps.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

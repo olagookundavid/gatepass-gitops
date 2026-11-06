@@ -1,0 +1,88 @@
+{{- /*
+The workload. Choices that matter (and are the same for every service):
+- image by digest; `checksum/config` changes when env or secret definitions change, so a config
+  change rolls the pods (the contracts say config is read at start-up only);
+- non-root, read-only root filesystem (the process writes only to /tmp, an emptyDir), no
+  capabilities, seccomp default;
+- replicas are NOT written when an autoscaler owns them (otherwise Argo CD and the HPA fight);
+- three probes: startup (slow start), readiness (take me out of the load balancer), liveness
+  (restart me). They use the service's own base path;
+- maxUnavailable 0: a rollout never removes a ready pod before its replacement is ready;
+- spread over zones and nodes so one failure does not take all replicas.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {{- include "gps.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "gps.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ dict "env" .Values.env "ext" .Values.externalSecret | toJson | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "gps.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpread }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "gps.selectorLabels" . | nindent 14 }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "gps.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: app
+          image: {{ include "gps.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: {{ .Values.port }}}
+          env: {{- include "gps.env" . | nindent 12 }}
+          {{- if .Values.externalSecret.enabled }}
+          envFrom:
+            - secretRef: {name: {{ include "gps.fullname" . }}-secrets}
+          {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {{- include "gps.containerSecurity" . | nindent 12 }}
+          startupProbe:
+            httpGet: {path: {{ printf "%s/livez" .Values.basePath }}, port: http}
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          readinessProbe:
+            httpGet: {path: {{ printf "%s/readyz" .Values.basePath }}, port: http}
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet: {path: {{ printf "%s/livez" .Values.basePath }}, port: http}
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
