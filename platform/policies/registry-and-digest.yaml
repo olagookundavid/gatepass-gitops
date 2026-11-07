@@ -23,8 +23,9 @@
 # SCOPE. Only namespaces labelled gatepass.dev/workloads=true (cluster-config creates them), so
 # platform namespaces (kube-system, argocd, kyverno, ...) that use public images are untouched.
 #
-# MODE. Starts in Audit: violations are recorded in PolicyReports (`kubectl get polr -A`) and
-# nothing is blocked. A later pull request changes the one line to [Deny].
+# MODE. Deny since 2026-11-07 (it started in Audit and the reports were clean for the real
+# skeleton pods). A violation is rejected at admission with the message below. To go back to
+# observing only, change the one line to [Audit] by pull request.
 #
 # Related: policies/signed-images.yaml (who built it), charts/gatepass-service (what the chart
 # renders), policy-tests/registry-and-digest (the unit test, run by CI).
@@ -37,7 +38,7 @@ metadata:
     policies.kyverno.io/category: Supply chain
     policies.kyverno.io/severity: high
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   matchConstraints:
     namespaceSelector:
       matchLabels:

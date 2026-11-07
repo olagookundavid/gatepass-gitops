@@ -28,7 +28,7 @@ metadata:
     policies.kyverno.io/category: Pod security
     policies.kyverno.io/severity: high
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   matchConstraints:
     namespaceSelector:
       matchLabels:

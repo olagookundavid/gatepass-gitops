@@ -26,6 +26,7 @@ resources:
   requests: {cpu: 50m, memory: 32Mi}
   limits: {memory: 64Mi}    # a memory limit (OOM-kill beats a noisy neighbour), NO CPU limit (no throttling)
 terminationGracePeriodSeconds: 30
+progressDeadlineSeconds: 180   # a rollout that is not ready after this long is reported failed
 nodeSelector: {}
 tolerations: []             # e.g. the spot taint for a stateless worker
 topologySpread: true        # spread replicas over zones and nodes (best effort)

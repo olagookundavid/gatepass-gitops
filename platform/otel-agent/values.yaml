@@ -18,7 +18,7 @@
 # UNVERIFIED until the first run: the `container` parser operator name and field names in this
 # collector version; kubelet TLS (insecure_skip_verify, the usual setting on EKS); whether
 # root is enough to read the log files; the log event JSON shape that the metric filter in
-# 60-observability/logs.tf matches ({ $.attributes.level = "error" }).
+# 60-observability/logs.tf matches ({ $.attributes.level = "ERROR" }, capitals as slog writes them).
 #
 # Related: bootstrap/otel-agent.yaml, platform/observability/namespaces.yaml (the privileged
 # namespace), gatepass-infra/60-observability/logs.tf (the log group).
