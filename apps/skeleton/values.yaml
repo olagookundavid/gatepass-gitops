@@ -13,6 +13,7 @@ port: 8080
 replicaCount: 2
 env:
   LOG_LEVEL: info
+  FORCE_NOT_READY: "true"   # PROOF H (walkthrough 05): a broken release must not be promoted; reverted right after
 resources:
   requests: {cpu: 50m, memory: 32Mi}
   limits: {memory: 64Mi}
