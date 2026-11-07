@@ -46,6 +46,13 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
+  # The chart writes `labels: {}` on its CRDs; the API server drops an empty map, so Argo CD saw a
+  # difference forever (11 CRDs OutOfSync, 2026-11-07). Cosmetic, so it is ignored.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /metadata/labels
   syncPolicy:
     automated:
       prune: true
