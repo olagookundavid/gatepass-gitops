@@ -1,0 +1,35 @@
+# Child application: default-deny network policies per Gatepass namespace
+# (platform/network-policies/), sync-wave 11.
+#
+# Wave 11 = right after cluster-config (wave 10), which creates the namespaces: a NetworkPolicy
+# cannot be created in a namespace that does not exist yet. Project `platform` because the
+# `apps` project is forbidden to create NetworkPolicy objects (projects/apps.yaml).
+# Related: platform/network-policies/*.yaml, cluster-config/namespace-*.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: network-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gatepass-skeleton
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

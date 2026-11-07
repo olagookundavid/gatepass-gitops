@@ -7,6 +7,8 @@
 #   manifests-validate  every YAML file is valid Kubernetes / Argo CD API (kubeconform)
 #   argocd-values       every Helm chart an Application installs renders with its pinned version
 #                       and our values (helm template; Argo CD's own configuration included)
+#   policy-tests        the Kyverno policies behave as written (unit tests on example Pods) and the
+#                       Pods the generic chart renders satisfy them (hack/test-policies.sh)
 #   gitleaks            no secret anywhere in the history
 #
 # Every `uses:` is pinned to a full commit SHA; downloaded programs are pinned by version AND
@@ -100,6 +102,25 @@ jobs:
       # Karpenter's charts come from an OCI registry; the runner reads them anonymously.
       - name: Render every chart with our values
         run: ruby hack/render-charts.rb
+
+  policies:
+    name: policy-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the Kyverno CLI (pinned, checksum verified)
+        env:
+          KYVERNO_VERSION: v1.19.2
+          KYVERNO_SHA256: 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a
+        run: |
+          curl -fsSL -o kyverno.tar.gz \
+            "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"
+          echo "${KYVERNO_SHA256}  kyverno.tar.gz" | sha256sum --check
+          tar -xzf kyverno.tar.gz kyverno
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Test the policies
+        run: hack/test-policies.sh
 
   secrets:
     name: gitleaks

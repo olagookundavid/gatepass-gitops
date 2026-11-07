@@ -1,0 +1,63 @@
+# Values for the kyverno chart 3.9.2 (applied by bootstrap/kyverno.yaml). Only what differs from
+# the chart's defaults.
+#
+# Four controllers, one job each:
+#   admission   answers the API server's "may this Pod be created?" call, and verifies image
+#               signatures (it is the only one that talks to ECR)
+#   background  re-checks objects that already exist (reports violations, no blocking)
+#   reports     turns the results into PolicyReport objects you can `kubectl get`
+#   cleanup     runs cleanup policies (none yet; kept because the chart needs it for its CRDs)
+#
+# DEV SHORTCUT (decision log): one replica each. Production runs three admission replicas with
+# a PodDisruptionBudget, because with `failurePolicy: Fail` an admission controller that is down
+# blocks Pod creation in the namespaces the policies cover. Here that is only gatepass-*
+# namespaces, never the platform ones, so a dev outage cannot lock the cluster.
+#
+# TOLERATIONS: the system nodes are tainted CriticalAddonsOnly (gatepass-infra/20-cluster/
+# nodes.tf). Kyverno must be able to start on them, same reason as KEDA and Karpenter.
+
+admissionController:
+  replicas: 1
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+backgroundController:
+  replicas: 1
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+reportsController:
+  replicas: 1
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+cleanupController:
+  replicas: 1
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+# The chart's own pre/post-install hook Jobs (CRD migration, webhook cleanup) also run on the
+# system nodes.
+crds:
+  migration:
+    tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+
+webhooksCleanup:
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+policyReportsCleanup:
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+# registryClient.credentialHelpers already lists `amazon` in the chart's defaults: the admission
+# controller reads ECR with the AWS default credential chain, which on this cluster means its
+# Pod Identity role. Nothing to set here; this comment is the pointer for the next reader.

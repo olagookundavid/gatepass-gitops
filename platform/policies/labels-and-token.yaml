@@ -1,0 +1,43 @@
+# Policy 4 of 5: standard labels, and no Kubernetes API token unless asked for.
+#
+# LABELS. Dashboards, cost reports and `kubectl get -l` rely on app.kubernetes.io/name and
+# part-of=gatepass. The chart sets them; this policy catches anything that does not.
+#
+# API TOKEN. By default Kubernetes mounts a token into every Pod that can call the Kubernetes API
+# as the Pod's ServiceAccount. The Go services never call it, and AWS access comes from Pod
+# Identity (a separate token), so the token is only attack surface: whoever gets a shell in the
+# Pod could use it. The chart sets automountServiceAccountToken=false. A workload that really
+# needs the API (an operator, a job that lists Pods) must say so with the annotation
+# gatepass.dev/allow-api-token: "true", which makes the exception visible in review.
+#
+# Related: charts/gatepass-service/templates/serviceaccount.yaml and deployment.yaml.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: gatepass-labels-and-token
+  annotations:
+    policies.kyverno.io/title: Standard labels, no API token by default
+    policies.kyverno.io/category: Hygiene
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        gatepass.dev/workloads: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - expression: >-
+        object.metadata.?labels['app.kubernetes.io/name'].hasValue() &&
+        object.metadata.?labels['app.kubernetes.io/part-of'].orValue('') == 'gatepass'
+      message: Pods must carry app.kubernetes.io/name and app.kubernetes.io/part-of=gatepass.
+    - expression: >-
+        object.spec.?automountServiceAccountToken.orValue(true) == false ||
+        object.metadata.?annotations['gatepass.dev/allow-api-token'].orValue('') == 'true'
+      message: >-
+        automountServiceAccountToken must be false, unless the Pod is annotated
+        gatepass.dev/allow-api-token="true" (a reviewed exception).

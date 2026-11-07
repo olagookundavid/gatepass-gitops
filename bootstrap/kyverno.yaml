@@ -1,0 +1,67 @@
+# Child application: Kyverno, the policy engine (Phase 6), sync-wave 0.
+#
+# What it does: Kyverno is a Kubernetes admission controller. Every time something creates a Pod
+# the API server asks Kyverno "is this allowed?" before the object is stored. The policies it
+# applies live in this repository (platform/policies/, delivered by bootstrap/policies.yaml), so
+# "what may run in Gatepass namespaces" is a reviewed pull request, not a setting in a console.
+# Pod Security Admission (built into Kubernetes) covers the generic hardening rules; Kyverno
+# adds the rules that are specific to us: only our registry, only by digest, only signed by our
+# pipeline, resources and probes present.
+#
+# Why Kyverno and not OPA Gatekeeper: policies are plain YAML with CEL expressions (no Rego to
+# learn), image signature verification is built in, and `kyverno test` runs the policies against
+# example objects in CI without a cluster.
+#
+# Chart 3.9.2 = Kyverno 1.19.2. It installs the CRDs of the NEW policy types
+# (policies.kyverno.io/v1: ValidatingPolicy, ImageValidatingPolicy). The older ClusterPolicy kind
+# is marked deprecated upstream, so no policy of ours uses it.
+#
+# Pod Identity: the admission controller reads ECR to verify signatures. Its role is created in
+# gatepass-infra/30-platform-aws (kyverno-admission-controller in namespace kyverno), so layer 30
+# must be applied before this pod starts (it always is: make up order 10 20 30 25).
+#
+# Related: platform/kyverno/values.yaml, bootstrap/policies.yaml, projects/platform.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kyverno.github.io/kyverno
+      chart: kyverno
+      targetRevision: 3.9.2
+      helm:
+        releaseName: kyverno
+        valueFiles:
+          - $values/platform/kyverno/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Kyverno CRDs are larger than the 256 KiB limit of a client-side apply annotation.
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

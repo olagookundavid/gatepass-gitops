@@ -32,7 +32,7 @@ spec:
         checksum/config: {{ dict "env" .Values.env "ext" .Values.externalSecret | toJson | sha256sum }}
     spec:
       serviceAccountName: {{ include "gps.serviceAccountName" . }}
-      automountServiceAccountToken: true
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         runAsNonRoot: true

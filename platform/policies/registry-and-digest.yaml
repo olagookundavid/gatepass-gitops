@@ -1,0 +1,65 @@
+# Policy 1 of 5: only our registry, only by digest, never `latest`.
+#
+# WHY. An image reference has three weak spots: the registry (anyone can push a look-alike image
+# to a public registry), the tag (a tag can be moved to different content after review) and
+# `latest` (which means "whatever was pushed last"). A digest (`@sha256:...`) names exact bytes,
+# so what Argo CD deployed is what the pull request showed. The generic chart already renders
+# `registry/repository@sha256:...`; this policy makes that a rule instead of a habit, so a hand-
+# written Deployment cannot bypass it.
+#
+# WHAT IT CHECKS (every container and init container of a Pod in a labelled namespace):
+#   1. the image starts with an ECR host of this region, then `/gatepass/`, in the form
+#      <12-digit account>.dkr.ecr.us-east-1.amazonaws.com/gatepass/<name>
+#      The account id is matched as "12 digits", NOT written out: this repository is public and
+#      must not contain the account id. (Production: also pin the exact account.)
+#   2. the image carries a digest `@sha256:<64 hex>`
+#   3. the tag, if any, is not `latest`
+# ONE EXCEPTION, written out in full: the busybox image (pinned by digest, from the public ECR
+# mirror of Docker Hub) that the chart's smoke-test Job uses to call /readyz. The string must equal
+# `smokeTest.image` in charts/gatepass-service/values.yaml; when busybox is bumped, bump both. CI
+# (hack/test-policies.sh renders the chart and runs these policies on it) fails if they drift.
+# Production would mirror busybox into the private registry and drop the exception.
+#
+# SCOPE. Only namespaces labelled gatepass.dev/workloads=true (cluster-config creates them), so
+# platform namespaces (kube-system, argocd, kyverno, ...) that use public images are untouched.
+#
+# MODE. Starts in Audit: violations are recorded in PolicyReports (`kubectl get polr -A`) and
+# nothing is blocked. A later pull request changes the one line to [Deny].
+#
+# Related: policies/signed-images.yaml (who built it), charts/gatepass-service (what the chart
+# renders), policy-tests/registry-and-digest (the unit test, run by CI).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: gatepass-registry-and-digest
+  annotations:
+    policies.kyverno.io/title: Only our registry, only by digest
+    policies.kyverno.io/category: Supply chain
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        gatepass.dev/workloads: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: images
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        object.spec.?initContainers.orValue([]).map(c, c.image)
+  validations:
+    - expression: >-
+        variables.images.all(i,
+        i.matches('^[0-9]{12}[.]dkr[.]ecr[.]us-east-1[.]amazonaws[.]com/gatepass/[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}$') ||
+        i == 'public.ecr.aws/docker/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec')
+      message: >-
+        Every image must be <account>.dkr.ecr.us-east-1.amazonaws.com/gatepass/<name>[:tag]@sha256:<digest>
+        (our registry, pinned by digest), or the one reviewed exception for the smoke-test image.
+    - expression: >-
+        variables.images.all(i, !i.contains(':latest'))
+      message: The tag `latest` is not allowed.
