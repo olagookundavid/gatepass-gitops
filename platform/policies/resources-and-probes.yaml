@@ -1,0 +1,53 @@
+# Policy 3 of 5: every app container declares what it needs and how to tell it is healthy.
+#
+# WHY. Without resource requests the scheduler (and Karpenter, which sizes nodes from requests)
+# is guessing; a container without a memory limit can take the whole node down; without
+# readiness/liveness probes Kubernetes sends traffic to a container that is not ready and never
+# restarts one that is stuck. The generic chart always sets these; the policy stops a hand-made
+# workload from skipping them.
+#
+# WHAT IT CHECKS, for every normal container (init containers are short-lived and exempt from
+# the probe rule, but still need requests):
+#   - requests.cpu and requests.memory, and limits.memory (no CPU limit on purpose: a CPU limit
+#     throttles a container that has idle CPU available; this is the common production advice)
+#   - readinessProbe and livenessProbe, except in run-to-completion Pods (restartPolicy Never or
+#     OnFailure: the migration and smoke-test Jobs), where "ready" has no meaning
+#
+# Related: charts/gatepass-service/values.yaml (resources, probes).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: gatepass-resources-and-probes
+  annotations:
+    policies.kyverno.io/title: Resources and probes
+    policies.kyverno.io/category: Reliability
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        gatepass.dev/workloads: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+    - expression: >-
+        variables.containers.all(c,
+        has(c.resources) && has(c.resources.requests) &&
+        'cpu' in c.resources.requests && 'memory' in c.resources.requests)
+      message: Every container must set resources.requests for cpu and memory.
+    - expression: >-
+        variables.containers.all(c,
+        has(c.resources) && has(c.resources.limits) && 'memory' in c.resources.limits)
+      message: Every container must set resources.limits.memory.
+    - expression: >-
+        object.spec.?restartPolicy.orValue('Always') != 'Always' ||
+        object.spec.containers.all(c, has(c.readinessProbe) && has(c.livenessProbe))
+      message: Every container of a long-running Pod must have a readinessProbe and a livenessProbe.

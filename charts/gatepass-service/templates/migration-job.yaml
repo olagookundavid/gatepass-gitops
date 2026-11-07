@@ -23,7 +23,7 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Values.migration.serviceAccountName | default (include "gps.serviceAccountName" .) }}
-      automountServiceAccountToken: true
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

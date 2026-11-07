@@ -1,0 +1,39 @@
+# Child application: the Kyverno policies (platform/policies/), sync-wave 3.
+#
+# Wave 3 = after Kyverno itself (wave 0, which installs the CRDs these objects need) and before
+# the services (wave 5), so the policies exist when the first service Pod is created. The
+# policies are cluster-scoped objects, hence project `platform`.
+#
+# SELF-HEAL matters here: if someone edits or deletes a policy with kubectl, Argo CD puts it
+# back. A policy that can be switched off by hand is a suggestion, not a control.
+# Related: bootstrap/kyverno.yaml, platform/policies/*.yaml, policy-tests/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

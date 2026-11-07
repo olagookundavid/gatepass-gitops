@@ -1,0 +1,112 @@
+# Network policies of the namespace gatepass-skeleton (the walking skeleton).
+#
+# THE IDEA. By default every pod in a Kubernetes cluster can talk to every other pod and to the
+# internet. Network policies change that to "nothing is allowed unless a rule says so". The
+# VPC CNI add-on enforces them (enableNetworkPolicy in gatepass-infra/20-cluster/addons.tf), on
+# each node, with eBPF. Rules are ADDITIVE: first deny everything, then open exactly the paths
+# the service needs.
+#
+# WHY IN THE PLATFORM AND NOT IN THE SERVICE'S CHART. The `apps` AppProject may not create
+# NetworkPolicy objects (projects/apps.yaml). If a service's own chart could add policies, a
+# bad pull request to a service could also open the door for itself. The platform team (this
+# directory, project `platform`, wave 11 after the namespaces exist) owns the rules; a service that
+# needs a new path asks for it in a pull request here. One file per namespace, because
+# paths differ per service (catalog talks to RDS, orders to a queue, ...).
+#
+# WHAT IS OPEN FOR THE SKELETON (and nothing else):
+#   ingress  8080 from the three public subnets, where the ALB lives (10.20.0.0/24 .. 10.20.2.0/24;
+#            gatepass-infra/10-network/locals.tf). NOT the whole VPC: pods also have VPC addresses,
+#            so a rule for the VPC range would admit every other pod too.
+#   ingress  8080 from pods of the same namespace (the PostSync smoke-test Job)
+#   egress   DNS (53 udp/tcp) to CoreDNS in kube-system
+#   egress   OTLP (4318) to the collector namespace `observability` (traces and metrics)
+#   egress   8080 to pods of the same namespace (the smoke test calls the service)
+# NOT open: the internet, AWS APIs, other namespaces, the data subnets. The skeleton has no AWS
+# role and needs none. A service WITH an IAM role also needs:
+#   egress to 169.254.170.23/32 tcp 80   the EKS Pod Identity agent on the node (credentials)
+#   egress to the AWS endpoints it uses on 443 (NAT or gateway endpoints)
+# and its data store's port to the data subnets only (Phase 7).
+#
+# kubelet health probes come from the node itself; the VPC CNI always lets a node reach its own
+# pods, so no rule is needed for them (proof: the pod becomes Ready under default deny).
+#
+# Related: cluster-config/namespace-gatepass-skeleton.yaml (the label that selects the
+# namespace), bootstrap/network-policies.yaml, walkthrough 07.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: gatepass-skeleton
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: gatepass-skeleton
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-ingress
+  namespace: gatepass-skeleton
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: skeleton}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 10.20.0.0/24}
+        - ipBlock: {cidr: 10.20.1.0/24}
+        - ipBlock: {cidr: 10.20.2.0/24}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace-http
+  namespace: gatepass-skeleton
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-telemetry-egress
+  namespace: gatepass-skeleton
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+      ports:
+        - {protocol: TCP, port: 4318}

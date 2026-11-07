@@ -34,6 +34,10 @@ serviceAccount:
   create: true
   name: ""                  # default: the release name. Pod Identity binds an AWS role to this name.
   annotations: {}
+  # Kubernetes API token inside the pod. Off by default: the Go services never call the API server,
+  # and AWS credentials come from Pod Identity (its own token volume), not from this token.
+  # Set true only for a workload that really talks to the Kubernetes API.
+  automountToken: false
 
 probes:
   startup: {failureThreshold: 30, periodSeconds: 2}

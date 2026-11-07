@@ -1,0 +1,24 @@
+# Unit tests for platform/policies/*.yaml, run with `kyverno test policy-tests/` (CI job
+# policy-tests). Each result says: this policy, on this example Pod, must pass or fail.
+# The signature policy (signed-images.yaml) needs the network and a real signature, so it is
+# proven on the cluster (walkthrough 07), not here.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: gatepass-policies
+policies:
+  - ../platform/policies/registry-and-digest.yaml
+  - ../platform/policies/pod-hardening.yaml
+  - ../platform/policies/resources-and-probes.yaml
+  - ../platform/policies/labels-and-token.yaml
+resources:
+  - resources.yaml
+results:
+  - {policy: gatepass-registry-and-digest, isValidatingPolicy: true, resources: [good], kind: Pod, result: pass}
+  - {policy: gatepass-registry-and-digest, isValidatingPolicy: true, resources: [latest-tag, other-registry], kind: Pod, result: fail}
+  - {policy: gatepass-pod-hardening, isValidatingPolicy: true, resources: [good], kind: Pod, result: pass}
+  - {policy: gatepass-pod-hardening, isValidatingPolicy: true, resources: [writable-privileged], kind: Pod, result: fail}
+  - {policy: gatepass-resources-and-probes, isValidatingPolicy: true, resources: [good], kind: Pod, result: pass}
+  - {policy: gatepass-resources-and-probes, isValidatingPolicy: true, resources: [no-resources-no-probes], kind: Pod, result: fail}
+  - {policy: gatepass-labels-and-token, isValidatingPolicy: true, resources: [good, token-exception], kind: Pod, result: pass}
+  - {policy: gatepass-labels-and-token, isValidatingPolicy: true, resources: [token-mounted-no-labels], kind: Pod, result: fail}

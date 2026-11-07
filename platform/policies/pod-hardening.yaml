@@ -1,0 +1,66 @@
+# Policy 2 of 5: container hardening beyond what Pod Security Admission checks.
+#
+# WHY. Namespaces enforce the Pod Security Standard `restricted` (non-root, no privilege
+# escalation, capabilities dropped, seccomp). `restricted` does NOT require a read-only root
+# filesystem, which is the cheapest protection against an attacker writing a tool into the
+# container. This policy adds it, and repeats the others so the failure message names our rule
+# and the rule is tested in CI without a cluster.
+#
+# WHAT IT CHECKS, per container and init container:
+#   - readOnlyRootFilesystem is true (the chart gives the app an emptyDir at /tmp instead)
+#   - allowPrivilegeEscalation is false
+#   - capabilities.drop contains ALL
+#   - privileged is not true
+# and per Pod: runAsNonRoot is true (pod level or on every container), and no hostNetwork,
+# hostPID or hostIPC.
+#
+# The CEL `.?field.orValue(x)` form reads an optional field with a default, so a Pod that
+# leaves a field out is judged as "not set" instead of making the expression fail with an error.
+#
+# Related: namespace-gatepass-skeleton.yaml in cluster-config (the Pod Security labels),
+# charts/gatepass-service/templates/_helpers.tpl (gps.containerSecurity).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: gatepass-pod-hardening
+  annotations:
+    policies.kyverno.io/title: Hardened containers
+    policies.kyverno.io/category: Pod security
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        gatepass.dev/workloads: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?readOnlyRootFilesystem.orValue(false) == true)
+      message: Every container must set securityContext.readOnlyRootFilesystem=true (write to an emptyDir such as /tmp).
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?allowPrivilegeEscalation.orValue(true) == false)
+      message: Every container must set securityContext.allowPrivilegeEscalation=false.
+    - expression: >-
+        variables.containers.all(c, 'ALL' in c.?securityContext.?capabilities.?drop.orValue([]))
+      message: Every container must drop ALL capabilities.
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?privileged.orValue(false) == false)
+      message: Privileged containers are not allowed.
+    - expression: >-
+        object.spec.?securityContext.?runAsNonRoot.orValue(false) == true ||
+        variables.containers.all(c, c.?securityContext.?runAsNonRoot.orValue(false) == true)
+      message: The Pod (or every container) must set runAsNonRoot=true.
+    - expression: >-
+        object.spec.?hostNetwork.orValue(false) == false &&
+        object.spec.?hostPID.orValue(false) == false &&
+        object.spec.?hostIPC.orValue(false) == false
+      message: hostNetwork, hostPID and hostIPC are not allowed.

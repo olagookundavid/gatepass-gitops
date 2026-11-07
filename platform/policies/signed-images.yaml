@@ -1,0 +1,63 @@
+# Policy 5 of 5: an image is only accepted if OUR pipeline signed it.
+#
+# WHY. A digest says "these exact bytes"; it does not say who produced them. Anyone with push
+# access to the registry (or a stolen credential) could push other bytes and reference them by
+# their own digest. The release workflow signs every image with cosign "keyless": GitHub issues a
+# short-lived certificate that says "this signature was made by workflow X of repository Y on
+# branch main", the signature and the certificate are logged in the public Rekor transparency
+# log, and the signature is stored in the same ECR repository next to the image. This policy
+# makes the admission controller check, at Pod creation, that the signature exists and was made
+# by exactly that workflow identity. No signing key exists anywhere, so none can leak.
+#
+# THE IDENTITY (certificate subject) is the reusable workflow that builds and signs:
+#   github.com/olagookundavid/gatepass-app/.github/workflows/_build-image.yaml@refs/heads/main
+# issued by https://token.actions.githubusercontent.com. A fork, another repository, a branch
+# other than main, or a laptop cannot produce a certificate with this subject.
+# UNVERIFIED until the first image is released (walkthrough 05): the subject GitHub puts into the
+# certificate for a reusable workflow is `job_workflow_ref`; if the first signature shows a
+# different string (check with `cosign verify ... | jq`), only this one regex changes.
+#
+# ECR ACCESS. Reading the signature needs ECR permissions; the admission controller uses its Pod
+# Identity role (gatepass-infra/30-platform-aws/kyverno.tf).
+#
+# SCOPE AND MODE. Only images under our ECR path, only labelled namespaces; Audit first.
+# Related: .github/workflows/_build-image.yaml in gatepass-app (signs), registry-and-digest.yaml.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: gatepass-signed-images
+  annotations:
+    policies.kyverno.io/title: Images signed by our release workflow
+    policies.kyverno.io/category: Supply chain
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Audit]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 20
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        gatepass.dev/workloads: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  matchImageReferences:
+    - glob: "*.dkr.ecr.us-east-1.amazonaws.com/gatepass/*"
+  credentials:
+    providers: [amazon]
+  attestors:
+    - name: release
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subjectRegExp: '^https://github[.]com/olagookundavid/gatepass-app/[.]github/workflows/_build-image[.]yaml@refs/heads/main$'
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.release])).all(e, e > 0)
+      message: The image is not signed by the Gatepass release workflow.
