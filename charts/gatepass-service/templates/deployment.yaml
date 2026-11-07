@@ -18,6 +18,10 @@ metadata:
 spec:
   {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
   replicas: {{ .Values.replicaCount }}
+  # A rollout that cannot become ready is reported failed (Argo CD: Degraded, then the alerts) after
+  # this long. The Kubernetes default is 600 s; 180 s is enough for a Go service (found 2026-11-07:
+  # the first broken release took the full 10 minutes to be flagged).
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   {{- end }}
   revisionHistoryLimit: 3
   strategy:

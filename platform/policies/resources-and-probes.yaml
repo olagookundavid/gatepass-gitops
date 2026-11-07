@@ -23,7 +23,7 @@ metadata:
     policies.kyverno.io/category: Reliability
     policies.kyverno.io/severity: medium
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   matchConstraints:
     namespaceSelector:
       matchLabels:

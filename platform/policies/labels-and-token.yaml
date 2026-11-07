@@ -20,7 +20,7 @@ metadata:
     policies.kyverno.io/category: Hygiene
     policies.kyverno.io/severity: medium
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   matchConstraints:
     namespaceSelector:
       matchLabels:

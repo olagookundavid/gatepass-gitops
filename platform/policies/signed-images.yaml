@@ -13,14 +13,14 @@
 #   github.com/olagookundavid/gatepass-app/.github/workflows/_build-image.yaml@refs/heads/main
 # issued by https://token.actions.githubusercontent.com. A fork, another repository, a branch
 # other than main, or a laptop cannot produce a certificate with this subject.
-# UNVERIFIED until the first image is released (walkthrough 05): the subject GitHub puts into the
-# certificate for a reusable workflow is `job_workflow_ref`; if the first signature shows a
-# different string (check with `cosign verify ... | jq`), only this one regex changes.
+# VERIFIED 2026-11-07 with `cosign verify` on the first release image: the certificate subject is
+# exactly this string (`job_workflow_ref` of the reusable workflow).
 #
 # ECR ACCESS. Reading the signature needs ECR permissions; the admission controller uses its Pod
 # Identity role (gatepass-infra/30-platform-aws/kyverno.tf).
 #
-# SCOPE AND MODE. Only images under our ECR path, only labelled namespaces; Audit first.
+# SCOPE AND MODE. Only images under our ECR path, only labelled namespaces; Deny since 2026-11-07
+# (proven in Audit first: the release image passed, an unsigned digest was reported).
 # Related: .github/workflows/_build-image.yaml in gatepass-app (signs), registry-and-digest.yaml.
 apiVersion: policies.kyverno.io/v1
 kind: ImageValidatingPolicy
@@ -31,7 +31,7 @@ metadata:
     policies.kyverno.io/category: Supply chain
     policies.kyverno.io/severity: high
 spec:
-  validationActions: [Audit]
+  validationActions: [Deny]
   failurePolicy: Fail
   webhookConfiguration:
     timeoutSeconds: 20
