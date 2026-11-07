@@ -110,3 +110,10 @@ config:
         receivers: [prometheus]
         processors: [memory_limiter, batch]
         exporters: [prometheusremotewrite]
+
+# NO SERVICE. This collector only SCRAPES (the prometheus receiver); it receives nothing, so it has
+# no port to expose. The chart still renders a Service in deployment mode, and with no ports
+# Kubernetes rejects it ("spec.ports: Required value"): Argo CD retried forever and showed the
+# application OutOfSync although the pod worked (found 2026-11-07, first cluster run).
+service:
+  enabled: false
