@@ -28,6 +28,11 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "0"
+    # The chart writes `labels: {}` on its 11 CRDs; the API server drops the empty map, and Argo CD's
+    # default (client-side) comparison saw a difference forever although `argocd app diff` was empty
+    # (11 CRDs OutOfSync, 2026-11-07). An ignoreDifferences rule on /metadata/labels (pointer or jq)
+    # did not help; comparing on the server does (the API server applies the same defaults).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -46,13 +51,6 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
-  # The chart writes `labels: {}` on its CRDs; the API server drops an empty map, so Argo CD saw a
-  # difference forever (11 CRDs OutOfSync, 2026-11-07). Cosmetic, so it is ignored.
-  ignoreDifferences:
-    - group: apiextensions.k8s.io
-      kind: CustomResourceDefinition
-      jsonPointers:
-        - /metadata/labels
   syncPolicy:
     automated:
       prune: true
