@@ -108,13 +108,13 @@ notifications:
         slack:
           method: POST
           body: |
-            {"text": ":x: *{{.app.metadata.name}}*: sync FAILED (revision {{.app.status.sync.revision}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
+            {"text": ":x: *{{.app.metadata.name}}*: sync FAILED (revision {{if .app.status.sync.revision}}{{printf "%.7s" .app.status.sync.revision}}{{else}}{{with .app.status.sync.revisions}}{{printf "%.7s" (index . 0)}}{{end}}{{end}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
     template.app-deployed: |
       webhook:
         slack:
           method: POST
           body: |
-            {"text": ":white_check_mark: *{{.app.metadata.name}}*: deployed and healthy (revision {{.app.status.sync.revision}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
+            {"text": ":white_check_mark: *{{.app.metadata.name}}*: deployed and healthy (revision {{if .app.status.sync.revision}}{{printf "%.7s" .app.status.sync.revision}}{{else}}{{with .app.status.sync.revisions}}{{printf "%.7s" (index . 0)}}{{end}}{{end}}). {{.context.argocdUrl}}/applications/{{.app.metadata.name}}"}
     template.app-health-degraded: |
       webhook:
         slack:
@@ -130,7 +130,7 @@ notifications:
         send: [app-sync-failed]
     trigger.on-deployed: |
       - when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
-        oncePer: app.status.sync.revision
+        oncePer: app.status.sync.revisions != nil ? app.status.sync.revisions[0] : app.status.sync.revision
         send: [app-deployed]
     trigger.on-health-degraded: |
       - when: app.status.health.status == 'Degraded'
@@ -140,7 +140,12 @@ notifications:
   # Applications the ApplicationSet creates carry the label app.kubernetes.io/part-of=gatepass),
   # because the add-ons and Argo CD itself sync constantly and would drown the channel. Production
   # often sends the success messages to a separate channel. `oncePer` sends once per Git revision.
-  # UNVERIFIED until the first service is released (walkthrough 05, step F).
+  # MULTI-SOURCE APPLICATIONS (every service: chart + `$values`) leave `status.sync.revision` EMPTY and
+  # put the commit in `status.sync.revisions` (a list). The first version used the empty field: the
+  # messages said `revision <no value>` and, worse, `oncePer` was a constant, so "deployed and healthy"
+  # fired only once per cluster and nothing was sent after a revert (seen 2026-11-07). The text and
+  # `oncePer` now take `revisions[0]` and fall back to `revision` for single-source applications.
+  # UNVERIFIED until the next cluster run (needs a live Application to evaluate the expression).
   #
   # (failures:) every application, both triggers, the notifier named `slack`. A webhook notifier is
   # addressed by its own NAME with no `:recipient` (`webhook:slack` fails with "notification
