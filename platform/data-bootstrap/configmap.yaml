@@ -39,6 +39,12 @@ data:
 
     GRANT rds_iam TO catalog_migrator, catalog_app, orders_report;
 
+    -- The master user on RDS is not a superuser. ALTER DEFAULT PRIVILEGES FOR ROLE <x> is allowed only to
+    -- a member of <x>, so it becomes a member of the two roles whose defaults are set below (found on the
+    -- first cluster run, 2026-11-09: "permission denied to change default privileges"). Repeating it is a
+    -- harmless notice.
+    GRANT catalog_migrator, orders_migrator TO CURRENT_USER;
+
     -- Passwords (the :'var' form quotes the value as a SQL literal).
     ALTER ROLE orders_app PASSWORD :'app_pw';
     ALTER ROLE orders_migrator PASSWORD :'migrator_pw';
