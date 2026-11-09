@@ -30,14 +30,21 @@ docker pull "$image" >/dev/null 2>&1 || image=postgres:17-alpine
 echo "== image: $image"
 docker run -d --name "$name" -e POSTGRES_PASSWORD=test "$image" >/dev/null
 for _ in $(seq 1 40); do docker exec "$name" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
-docker exec "$name" psql -U postgres -q -c "CREATE ROLE rds_iam" >/dev/null
+# On RDS the master user is NOT a superuser: it can create databases and roles (rds_superuser) but, for
+# example, it may change the default privileges of a role only if it is a member of that role (found on
+# the first cluster run, 2026-11-09). So the SQL runs here as an ordinary role with only CREATEDB and
+# CREATEROLE, the closest local stand-in; running it as the postgres superuser would hide that kind of
+# failure. `rds_iam` is created by that same role (on RDS it exists already).
+docker exec "$name" psql -U postgres -q -c "CREATE ROLE gatepass_admin LOGIN CREATEDB CREATEROLE PASSWORD 'test'" >/dev/null
+docker exec "$name" psql -U postgres -q -c "GRANT CONNECT ON DATABASE postgres TO gatepass_admin" >/dev/null
+docker exec "$name" psql -U gatepass_admin -d postgres -q -c "CREATE ROLE rds_iam" >/dev/null
 
 for run in 1 2; do
-  echo "== bootstrap run $run"
-  docker exec -i "$name" psql -U postgres -q -v ON_ERROR_STOP=1 -v app_pw="pw'with\"chars" -v migrator_pw=m1 < "$sql" >/dev/null
+  echo "== bootstrap run $run (as a non-superuser)"
+  docker exec -i "$name" psql -U gatepass_admin -d postgres -q -v ON_ERROR_STOP=1 -v app_pw="pw'with\"chars" -v migrator_pw=m1 < "$sql" >/dev/null
 done
 
-q() { docker exec "$name" psql -U postgres -At -c "$1"; }
+q() { docker exec "$name" psql -U postgres -d postgres -At -c "$1"; }
 [[ "$(q "select count(*) from pg_database where datname in ('catalog','orders')")" == "2" ]] || { echo "!! databases missing"; exit 1; }
 iam="$(q "select string_agg(rolname, ',' order by rolname) from pg_roles where rolname ~ '^(catalog|orders)_' and pg_has_role(rolname,'rds_iam','member')")"
 [[ "$iam" == "catalog_app,catalog_migrator,orders_report" ]] || { echo "!! rds_iam members: $iam"; exit 1; }
