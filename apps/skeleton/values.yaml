@@ -13,7 +13,6 @@ port: 8080
 replicaCount: 2
 env:
   LOG_LEVEL: info
-  FORCE_NOT_READY: "true"   # PROOF (2026-11-09): alerts, Slack messages, 180 s deadline; reverted right after
 resources:
   requests: {cpu: 50m, memory: 32Mi}
   limits: {memory: 64Mi}
