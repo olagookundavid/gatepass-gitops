@@ -5,7 +5,8 @@
 # The SQL is taken from platform/data-bootstrap/configmap.yaml, the file that is DEPLOYED, so the test
 # cannot pass on a copy that differs. A local stand-in role `rds_iam` is created first (on RDS that role
 # exists already). Checks: both runs succeed (idempotent), the two databases exist, the three IAM roles
-# are members of rds_iam and the two password roles are not.
+# are members of rds_iam, the two password roles are not, and the master user inherits none of the roles it
+# touched (so its password login keeps working).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -48,4 +49,11 @@ q() { docker exec "$name" psql -U postgres -d postgres -At -c "$1"; }
 [[ "$(q "select count(*) from pg_database where datname in ('catalog','orders')")" == "2" ]] || { echo "!! databases missing"; exit 1; }
 iam="$(q "select string_agg(rolname, ',' order by rolname) from pg_roles where rolname ~ '^(catalog|orders)_' and pg_has_role(rolname,'rds_iam','member')")"
 [[ "$iam" == "catalog_app,catalog_migrator,orders_report" ]] || { echo "!! rds_iam members: $iam"; exit 1; }
+# The master must NEVER INHERIT rds_iam: on RDS a role that inherits rds_iam can sign in only with an IAM
+# token, so the next run of the Job could no longer log in with the master password (it happened on
+# 2026-11-09). PostgreSQL 17 gives the creator of a role a harmless admin-only row (no inherit, no set)
+# for every role it creates; those rows are fine (the Job logged in with them present). What matters is
+# that no row of the master has inherit or set enabled, and that it does not inherit rds_iam.
+[[ "$(q "select pg_has_role('gatepass_admin','rds_iam','usage')")" == "f" ]] || { echo "!! the master user inherits rds_iam"; exit 1; }
+[[ "$(q "select count(*) from pg_auth_members m join pg_roles g on g.oid=m.member where g.rolname='gatepass_admin' and (m.inherit_option or m.set_option)")" == "0" ]] || { echo "!! the master user kept an inheriting membership"; exit 1; }
 echo "ok: 2 databases, rds_iam members = $iam, password roles = orders_app, orders_migrator"
