@@ -39,12 +39,6 @@ data:
 
     GRANT rds_iam TO catalog_migrator, catalog_app, orders_report;
 
-    -- The master user on RDS is not a superuser. ALTER DEFAULT PRIVILEGES FOR ROLE <x> is allowed only to
-    -- a member of <x>, so it becomes a member of the two roles whose defaults are set below (found on the
-    -- first cluster run, 2026-11-09: "permission denied to change default privileges"). Repeating it is a
-    -- harmless notice.
-    GRANT catalog_migrator, orders_migrator TO CURRENT_USER;
-
     -- Passwords (the :'var' form quotes the value as a SQL literal).
     ALTER ROLE orders_app PASSWORD :'app_pw';
     ALTER ROLE orders_migrator PASSWORD :'migrator_pw';
@@ -54,19 +48,35 @@ data:
     GRANT CONNECT ON DATABASE catalog TO catalog_migrator, catalog_app;
     GRANT USAGE, CREATE ON SCHEMA public TO catalog_migrator;
     GRANT USAGE ON SCHEMA public TO catalog_app;
+    -- ALTER DEFAULT PRIVILEGES FOR ROLE <x> is allowed only to a member of <x>, and the RDS master user is
+    -- not a superuser (found on the first cluster run: "permission denied to change default privileges").
+    -- So the master becomes a member of the migrator ONLY inside this transaction, and the membership is
+    -- revoked before COMMIT. It MUST NOT stay: the migrator belongs to rds_iam, a member of rds_iam can
+    -- sign in only with an IAM token, and a master that inherited that would be locked out of password
+    -- login (it happened once, 2026-11-09, and was repaired by signing in with an IAM token). The
+    -- transaction also means that a failure half way leaves no membership behind.
+    BEGIN;
+    GRANT catalog_migrator TO CURRENT_USER;
     ALTER DEFAULT PRIVILEGES FOR ROLE catalog_migrator IN SCHEMA public
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO catalog_app;
     ALTER DEFAULT PRIVILEGES FOR ROLE catalog_migrator IN SCHEMA public
       GRANT USAGE, SELECT ON SEQUENCES TO catalog_app;
+    REVOKE catalog_migrator FROM CURRENT_USER;
+    COMMIT;
 
     -- orders
     \connect orders
     GRANT CONNECT ON DATABASE orders TO orders_migrator, orders_app, orders_report;
     GRANT USAGE, CREATE ON SCHEMA public TO orders_migrator;
     GRANT USAGE ON SCHEMA public TO orders_app, orders_report;
+    -- Same temporary, transactional membership as above (see the comment in the catalog section).
+    BEGIN;
+    GRANT orders_migrator TO CURRENT_USER;
     ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO orders_app;
     ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
       GRANT USAGE, SELECT ON SEQUENCES TO orders_app;
     ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
       GRANT SELECT ON TABLES TO orders_report;
+    REVOKE orders_migrator FROM CURRENT_USER;
+    COMMIT;
