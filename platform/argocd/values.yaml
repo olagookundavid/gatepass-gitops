@@ -43,10 +43,11 @@ configs:
     admin.enabled: false
     users.anonymous.enabled: false
 
-    # Where users reach Argo CD. Until Phase 6b this is the kubectl port-forward address; it
-    # is also the address GitHub sends the browser back to after login
-    # (http://localhost:8080/api/dex/callback, set in the GitHub OAuth app).
-    url: http://localhost:8080
+    # `url` (where users reach Argo CD: https://argocd.<domain>, also the address GitHub sends the
+    # browser back to after login, <url>/api/dex/callback, set in the GitHub OAuth app) is NOT set
+    # here since Phase 6b: it contains the domain, and this repository is public. Terraform owns
+    # that key (gatepass-infra/25-gitops-bootstrap/domain.tf); Argo CD's server-side apply of this
+    # file leaves keys it does not name alone.
 
     # A shell inside application pods from the UI: off (nobody needs it, and it is a way in).
     exec.enabled: false
@@ -89,7 +90,8 @@ notifications:
     # argocd-notifications-secret is created by Terraform (Slack webhook URL).
     create: false
 
-  argocdUrl: http://localhost:8080
+  # `argocdUrl` (the address printed in the Slack messages) is not set here either: Terraform
+  # writes the `context` key of argocd-notifications-cm (domain.tf), for the same reason as `url`.
 
   # A webhook notifier named `slack`; "$slack-webhook-url" = the key of that name in
   # argocd-notifications-secret. Slack's incoming webhook accepts a JSON body with a "text".

@@ -1,0 +1,59 @@
+# Values for the external-dns chart 1.23.0 (applied by bootstrap/external-dns.yaml). Only what
+# differs from the chart's defaults.
+#
+# WHAT EACH SETTING DECIDES
+#   provider aws, --aws-zone-type=public   talk to Route 53 and only look at PUBLIC zones.
+#   sources: ingress                        read host names from Ingress objects (not Services).
+#   policy: upsert-only                     create and update records, NEVER delete one. A deleted
+#                                           Ingress therefore leaves its record behind (a dangling
+#                                           alias after `make down`, replaced by the next `make up`).
+#                                           Production usually chooses `sync` once it trusts the
+#                                           ownership records; dev chooses the safer one.
+#   registry txt, txtOwnerId gatepass-dev   next to every record ExternalDNS writes a TXT record
+#                                           "heritage=external-dns,owner=gatepass-dev"; it only
+#                                           changes records that carry its own owner id. A second
+#                                           cluster (stage) uses another id and cannot overwrite.
+#   no --domain-filter                      the domain is not written in this public repository.
+#                                           The IAM role is limited to ONE hosted zone, which gives
+#                                           the same boundary (names outside that zone cannot be
+#                                           written); production sets the filter as well.
+#   triggerLoopOnEvent + interval 1m        react to an Ingress change within seconds, and resync
+#                                           every minute as a safety net.
+#
+# The service account name (external-dns in namespace external-dns) is what the Pod Identity
+# association in gatepass-infra/30-platform-aws/pod-identity.tf names. The system nodes are tainted
+# CriticalAddonsOnly (gatepass-infra/20-cluster/nodes.tf), hence the toleration.
+
+provider:
+  name: aws
+
+sources:
+  - ingress
+
+policy: upsert-only
+registry: txt
+txtOwnerId: gatepass-dev
+
+extraArgs:
+  - --aws-zone-type=public
+
+interval: 1m
+triggerLoopOnEvent: true
+logLevel: info
+
+serviceAccount:
+  create: true
+  name: external-dns
+
+env:
+  # Route 53 is a global service but the SDK still wants a region to sign with.
+  - name: AWS_DEFAULT_REGION
+    value: us-east-1
+
+resources:
+  requests: {cpu: 20m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists

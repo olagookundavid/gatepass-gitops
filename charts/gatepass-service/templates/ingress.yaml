@@ -4,6 +4,13 @@ group name that merges all Ingresses into one load balancer) comes from the Ingr
 of the class (platform/cluster-config/ingressclass-alb.yaml); this Ingress only adds a path
 rule and says where the health check goes. The path is NOT rewritten: the service itself
 serves under its base path (contracts: "the Ingress does not strip it").
+
+HTTPS (Phase 6b). When a domain is injected the route gets the host api.<domain>, a `tls` entry
+with that host, an HTTPS listener next to HTTP, a redirect from 80 to 443 and a modern TLS policy.
+There is NO certificate ARN here: the load balancer controller finds the ACM certificate whose
+names cover the host ("certificate discovery"; it is the wildcard from gatepass-infra/05-dns).
+All Ingresses of the shared load balancer must agree on the listener annotations, so the ones
+below are repeated, identical, in charts/platform-ingresses.
 */ -}}
 {{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -17,10 +24,23 @@ metadata:
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/deregistration-delay.timeout_seconds: "30"
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    {{- if .Values.ingress.domain }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.domain }}
+  tls:
+    - hosts:
+        - {{ printf "%s.%s" .Values.ingress.hostPrefix .Values.ingress.domain | quote }}
+  {{- end }}
   rules:
-    - http:
+    - {{- if .Values.ingress.domain }}
+      host: {{ printf "%s.%s" .Values.ingress.hostPrefix .Values.ingress.domain | quote }}
+      {{- end }}
+      http:
         paths:
           - path: {{ .Values.basePath }}
             pathType: Prefix

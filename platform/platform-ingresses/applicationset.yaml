@@ -1,0 +1,56 @@
+# ApplicationSet: one Application, `platform-ingresses`, that renders charts/platform-ingresses
+# with the domain read from the cluster annotation gatepass.dev/domain.
+#
+# WHY AN ApplicationSET FOR ONE APPLICATION: an Application can only take fixed parameters from
+# Git, but an ApplicationSet can read the annotation on the in-cluster Secret (written by Terraform
+# from terraform.tfvars, gatepass-infra/25-gitops-bootstrap/cluster.tf). That is how the host
+# names reach the cluster without the domain being written in this public repository. The services
+# use the same trick (platform/services/applicationset.yaml) for the registry host and the domain.
+#
+# Project `platform` (the Ingresses live in the argocd and observability namespaces). The
+# generated Application carries the resources finalizer so that `make down` deletes the Ingresses,
+# and with them the load balancer rules, while the controller is still alive
+# (gatepass-infra/scripts/drain-cluster.sh deletes every ApplicationSet before the workloads).
+#
+# Related: bootstrap/platform-ingresses.yaml (delivers this file), charts/platform-ingresses.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform-ingresses
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            gatepass.dev/environment: dev
+  template:
+    metadata:
+      name: platform-ingresses
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform
+      source:
+        repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+        targetRevision: main
+        path: charts/platform-ingresses
+        helm:
+          releaseName: platform-ingresses
+          parameters:
+            - name: domain
+              value: '{{ index .metadata.annotations "gatepass.dev/domain" }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff: {duration: 20s, factor: 2, maxDuration: 3m}

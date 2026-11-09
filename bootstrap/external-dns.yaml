@@ -1,0 +1,59 @@
+# Child application: ExternalDNS (Phase 6b), sync-wave 0.
+#
+# What it does: watches Ingress objects and writes DNS records for their host names into the
+# Route 53 zone of gatepass-infra/05-dns. api.<domain> and argocd.<domain> exist because this
+# program creates them, and after every `make down && make up` it re-points them at the new load
+# balancer without anybody touching DNS. Its AWS permissions come from EKS Pod Identity and are
+# limited to that one zone (gatepass-infra/30-platform-aws/external-dns.tf and pod-identity.tf).
+#
+# SOURCES (same two-source pattern as the other add-ons): the chart from the kubernetes-sigs
+# repository at an exact version (1.23.0 installs ExternalDNS v0.23.0), and this repository (named
+# `values`) for platform/external-dns/values.yaml.
+#
+# SYNC WAVE 0: with the other controllers; it does nothing until an Ingress with a host exists.
+#
+# Related: platform/external-dns/values.yaml, projects/platform.yaml (trusts the chart repository),
+# charts/gatepass-service and charts/platform-ingresses (the Ingresses it reads).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/external-dns
+      chart: external-dns
+      targetRevision: 1.23.0
+      helm:
+        releaseName: external-dns
+        valueFiles:
+          - $values/platform/external-dns/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m
