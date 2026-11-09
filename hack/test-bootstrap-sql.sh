@@ -30,7 +30,12 @@ image=public.ecr.aws/docker/library/postgres:17-alpine
 docker pull "$image" >/dev/null 2>&1 || image=postgres:17-alpine
 echo "== image: $image"
 docker run -d --name "$name" -e POSTGRES_PASSWORD=test "$image" >/dev/null
-for _ in $(seq 1 40); do docker exec "$name" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+# The official image starts a TEMPORARY server to run its init scripts, stops it, and starts the real one.
+# pg_isready already says "ready" during the temporary phase, and the first psql then hits the restart
+# ("No such file or directory: .s.PGSQL.5432", seen in CI on 2026-11-09 and locally before). So wait for
+# the image's own "init process complete" line first, then for the real server.
+for _ in $(seq 1 60); do docker logs "$name" 2>&1 | grep -q "PostgreSQL init process complete" && break; sleep 1; done
+for _ in $(seq 1 60); do docker exec "$name" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
 # On RDS the master user is NOT a superuser: it can create databases and roles (rds_superuser) but, for
 # example, it may change the default privileges of a role only if it is a member of that role (found on
 # the first cluster run, 2026-11-09). So the SQL runs here as an ordinary role with only CREATEDB and
