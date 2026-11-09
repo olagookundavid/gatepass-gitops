@@ -56,4 +56,7 @@ iam="$(q "select string_agg(rolname, ',' order by rolname) from pg_roles where r
 # that no row of the master has inherit or set enabled, and that it does not inherit rds_iam.
 [[ "$(q "select pg_has_role('gatepass_admin','rds_iam','usage')")" == "f" ]] || { echo "!! the master user inherits rds_iam"; exit 1; }
 [[ "$(q "select count(*) from pg_auth_members m join pg_roles g on g.oid=m.member where g.rolname='gatepass_admin' and (m.inherit_option or m.set_option)")" == "0" ]] || { echo "!! the master user kept an inheriting membership"; exit 1; }
+# Isolation: each service's roles reach their own database only (PUBLIC's default CONNECT is revoked).
+[[ "$(q "select has_database_privilege('catalog_app','catalog','CONNECT')::text || has_database_privilege('orders_app','orders','CONNECT')::text")" == "truetrue" ]] || { echo "!! a service role cannot reach its own database"; exit 1; }
+[[ "$(q "select has_database_privilege('catalog_app','orders','CONNECT')::text || has_database_privilege('catalog_migrator','orders','CONNECT')::text || has_database_privilege('orders_app','catalog','CONNECT')::text || has_database_privilege('orders_report','catalog','CONNECT')::text")" == "falsefalsefalsefalse" ]] || { echo "!! a role can connect to another service's database"; exit 1; }
 echo "ok: 2 databases, rds_iam members = $iam, password roles = orders_app, orders_migrator"

@@ -30,6 +30,13 @@ data:
     SELECT 'CREATE DATABASE catalog' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'catalog')\gexec
     SELECT 'CREATE DATABASE orders' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'orders')\gexec
 
+    -- PostgreSQL lets EVERYONE (the pseudo-role PUBLIC) connect to every new database. Without this, the
+    -- explicit GRANT CONNECT lines below isolate nothing: found on the first cluster run (2026-11-09),
+    -- catalog_app could log in to the orders database. After this, only the roles named in the GRANTs
+    -- below can connect, each to its own database.
+    REVOKE ALL ON DATABASE catalog FROM PUBLIC;
+    REVOKE ALL ON DATABASE orders FROM PUBLIC;
+
     -- Roles (server-wide, so created once from any database).
     SELECT 'CREATE ROLE catalog_migrator LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_migrator')\gexec
     SELECT 'CREATE ROLE catalog_app LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_app')\gexec
@@ -46,6 +53,7 @@ data:
     -- catalog
     \connect catalog
     GRANT CONNECT ON DATABASE catalog TO catalog_migrator, catalog_app;
+    REVOKE ALL ON SCHEMA public FROM PUBLIC;
     GRANT USAGE, CREATE ON SCHEMA public TO catalog_migrator;
     GRANT USAGE ON SCHEMA public TO catalog_app;
     -- ALTER DEFAULT PRIVILEGES FOR ROLE <x> is allowed only to a member of <x>, and the RDS master user is
@@ -67,6 +75,7 @@ data:
     -- orders
     \connect orders
     GRANT CONNECT ON DATABASE orders TO orders_migrator, orders_app, orders_report;
+    REVOKE ALL ON SCHEMA public FROM PUBLIC;
     GRANT USAGE, CREATE ON SCHEMA public TO orders_migrator;
     GRANT USAGE ON SCHEMA public TO orders_app, orders_report;
     -- Same temporary, transactional membership as above (see the comment in the catalog section).
