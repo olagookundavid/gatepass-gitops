@@ -1,0 +1,55 @@
+{{- /*
+One Ingress per platform tool, on the SAME shared load balancer as the services (the group name
+comes from the IngressClassParams of the class, platform/cluster-config/ingressclass-alb.yaml).
+
+Why Ingress objects of their own and not the Argo CD / Grafana charts' built-in ingress values:
+the host name contains the domain, which is not written in this public repository. This chart
+gets the domain injected by an ApplicationSet (platform/platform-ingresses/applicationset.yaml);
+the charts of Argo CD and Grafana read their values from Git only.
+
+The listener annotations (ports, redirect, TLS policy) are IDENTICAL to the ones in
+charts/gatepass-service/templates/ingress.yaml: Ingresses that share a load balancer must agree
+on its listeners. No certificate ARN: the controller discovers the wildcard certificate in ACM
+from the host (gatepass-infra/05-dns).
+
+Both tools are protected by their own login (GitHub SSO through Dex for Argo CD, the Grafana
+admin or GitHub SSO for Grafana) and by the WAF of the class; they are on the internet by design
+(you reach them from any device), which is why the local admin of Argo CD stays disabled.
+*/ -}}
+{{- if not .Values.domain }}
+{{- fail "platform-ingresses: .Values.domain is empty. It is injected from the cluster annotation gatepass.dev/domain; set it only for a local template check (--set domain=gatepass.example.test)." }}
+{{- end }}
+{{- range $name, $tool := dict "argocd" .Values.argocd "grafana" .Values.grafana }}
+{{- if $tool.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ $tool.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}-ingress
+    app.kubernetes.io/part-of: platform
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: {{ $tool.healthcheckPath | quote }}
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+spec:
+  ingressClassName: {{ $.Values.className }}
+  tls:
+    - hosts:
+        - {{ printf "%s.%s" $name $.Values.domain | quote }}
+  rules:
+    - host: {{ printf "%s.%s" $name $.Values.domain | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: {{ $tool.service }}, port: {number: {{ $tool.port }}}}
+{{- end }}
+{{- end }}

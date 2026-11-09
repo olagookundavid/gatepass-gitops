@@ -1,0 +1,31 @@
+# Child application: delivers the ApplicationSet that creates the Ingresses of Argo CD and
+# Grafana (platform/platform-ingresses/applicationset.yaml), sync-wave 12.
+#
+# Wave 12 = after cluster-config (wave 10), which creates the IngressClass `alb` and its
+# IngressClassParams: the load balancer controller's admission webhook rejects an Ingress whose
+# class does not exist yet. Project platform: an ApplicationSet is cluster-wide machinery.
+# Related: charts/platform-ingresses, bootstrap/services.yaml (the same pattern for services).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-ingresses-set
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/platform-ingresses
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

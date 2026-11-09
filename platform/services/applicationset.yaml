@@ -67,6 +67,8 @@ spec:
             parameters:
               - name: image.registry
                 value: '{{ index .metadata.annotations "gatepass.dev/ecr-registry" }}'
+              - name: ingress.domain
+                value: '{{ index .metadata.annotations "gatepass.dev/domain" }}'
         - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
           targetRevision: main
           ref: values

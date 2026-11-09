@@ -9,6 +9,7 @@
 #                       and our values (helm template; Argo CD's own configuration included)
 #   policy-tests        the Kyverno policies behave as written (unit tests on example Pods) and the
 #                       Pods the generic chart renders satisfy them (hack/test-policies.sh)
+#   bootstrap-sql       the database bootstrap SQL runs twice on a real PostgreSQL 17 (hack/test-bootstrap-sql.sh)
 #   gitleaks            no secret anywhere in the history
 #
 # Every `uses:` is pinned to a full commit SHA; downloaded programs are pinned by version AND
@@ -89,6 +90,14 @@ jobs:
                   -schema-location default \
                   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           done
+      # The Ingresses of Argo CD and Grafana. The chart refuses to render without a domain (it is
+      # injected by an ApplicationSet from a cluster annotation), so the check uses a fake one.
+      - name: Render the platform ingresses
+        run: |
+          set -euo pipefail
+          helm lint charts/platform-ingresses --set domain=gatepass.example.test
+          helm template platform-ingresses charts/platform-ingresses --set domain=gatepass.example.test \
+            | ./kubeconform -strict -summary -schema-location default
 
   argocd-values:
     name: argocd-values
@@ -121,6 +130,18 @@ jobs:
           echo "$PWD" >> "$GITHUB_PATH"
       - name: Test the policies
         run: hack/test-policies.sh
+
+  bootstrap-sql:
+    name: bootstrap-sql
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Runs the database bootstrap SQL (the text inside platform/data-bootstrap/configmap.yaml, the file
+      # that is deployed) twice against a real PostgreSQL 17 in a throwaway container and checks the
+      # databases and role memberships. Not a required check yet: it needs Docker on the runner.
+      - name: Test the bootstrap SQL
+        run: hack/test-bootstrap-sql.sh
 
   secrets:
     name: gitleaks

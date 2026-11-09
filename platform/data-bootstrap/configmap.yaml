@@ -1,0 +1,66 @@
+# The database bootstrap SQL as a ConfigMap, mounted into the Job (job.yaml). The text is the single
+# source of truth: hack/test-bootstrap-sql.sh extracts it from THIS file and runs it twice against a
+# real PostgreSQL 17 in CI, so what is tested is exactly what is deployed.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-bootstrap-sql
+  namespace: data-bootstrap
+data:
+  bootstrap.sql: |
+    -- Creates the databases, roles and grants that the Gatepass services expect (from
+    -- gatepass-app/HANDOFF.md, sections "catalog" and "orders"). Run as the RDS master user by the Job in
+    -- job.yaml after every rebuild of the database (it is empty then). IDEMPOTENT: running it again
+    -- changes nothing but resets the two passwords to the values in Secrets Manager.
+    --
+    -- psql variables, passed by the Job: app_pw, migrator_pw (the passwords of orders_app and
+    -- orders_migrator). They are never written into this file or into Git.
+    --
+    -- ROLES AND HOW THEY SIGN IN
+    --   catalog_app, catalog_migrator, orders_report   `GRANT rds_iam`: they sign in with an IAM token
+    --                                                  and have no password.
+    --   orders_app, orders_migrator                    a password (set below from the variables).
+    -- *_migrator own the tables (they run the schema migrations); *_app only read and write the rows
+    -- (default privileges give it that automatically for every table the migrator creates);
+    -- orders_report may only SELECT.
+
+    \set ON_ERROR_STOP on
+
+    -- Databases (CREATE DATABASE cannot run inside a function, hence \gexec).
+    SELECT 'CREATE DATABASE catalog' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'catalog')\gexec
+    SELECT 'CREATE DATABASE orders' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'orders')\gexec
+
+    -- Roles (server-wide, so created once from any database).
+    SELECT 'CREATE ROLE catalog_migrator LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_migrator')\gexec
+    SELECT 'CREATE ROLE catalog_app LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog_app')\gexec
+    SELECT 'CREATE ROLE orders_migrator LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orders_migrator')\gexec
+    SELECT 'CREATE ROLE orders_app LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orders_app')\gexec
+    SELECT 'CREATE ROLE orders_report LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'orders_report')\gexec
+
+    GRANT rds_iam TO catalog_migrator, catalog_app, orders_report;
+
+    -- Passwords (the :'var' form quotes the value as a SQL literal).
+    ALTER ROLE orders_app PASSWORD :'app_pw';
+    ALTER ROLE orders_migrator PASSWORD :'migrator_pw';
+
+    -- catalog
+    \connect catalog
+    GRANT CONNECT ON DATABASE catalog TO catalog_migrator, catalog_app;
+    GRANT USAGE, CREATE ON SCHEMA public TO catalog_migrator;
+    GRANT USAGE ON SCHEMA public TO catalog_app;
+    ALTER DEFAULT PRIVILEGES FOR ROLE catalog_migrator IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO catalog_app;
+    ALTER DEFAULT PRIVILEGES FOR ROLE catalog_migrator IN SCHEMA public
+      GRANT USAGE, SELECT ON SEQUENCES TO catalog_app;
+
+    -- orders
+    \connect orders
+    GRANT CONNECT ON DATABASE orders TO orders_migrator, orders_app, orders_report;
+    GRANT USAGE, CREATE ON SCHEMA public TO orders_migrator;
+    GRANT USAGE ON SCHEMA public TO orders_app, orders_report;
+    ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO orders_app;
+    ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
+      GRANT USAGE, SELECT ON SEQUENCES TO orders_app;
+    ALTER DEFAULT PRIVILEGES FOR ROLE orders_migrator IN SCHEMA public
+      GRANT SELECT ON TABLES TO orders_report;

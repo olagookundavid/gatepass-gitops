@@ -1,0 +1,23 @@
+# INJECTED by the ApplicationSet platform/platform-ingresses from the cluster annotation
+# gatepass.dev/domain; the public repository does not publish the domain. The chart refuses to
+# render without it (templates/ingresses.yaml).
+domain: ""
+
+className: alb
+
+# One entry per tool. `enabled: false` removes the Ingress (the tool stays reachable by
+# port-forward). Grafana is exposed only together with its GitHub login (walkthrough 08, step K):
+# the local admin password alone is not a door to leave open on the internet.
+argocd:
+  enabled: true
+  namespace: argocd
+  service: argocd-server
+  port: 80                  # the server runs "insecure" (plain HTTP): TLS ends at the load balancer
+  healthcheckPath: /healthz
+
+grafana:
+  enabled: false            # becomes true in the pull request of walkthrough 08 step K (GitHub login ready)
+  namespace: observability
+  service: grafana
+  port: 80
+  healthcheckPath: /api/health

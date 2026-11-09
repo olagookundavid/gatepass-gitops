@@ -63,6 +63,13 @@ service:
 ingress:
   enabled: true             # false for internal-only services and workers (no route at all)
   className: alb            # the IngressClass of platform/cluster-config/ingressclass-alb.yaml
+  # The delegated subdomain. INJECTED by the ApplicationSet from the cluster annotation
+  # gatepass.dev/domain (the public repository does not publish it); never set it in a values file.
+  # Empty = no host and no HTTPS: the route is reachable on the load balancer's own name over HTTP
+  # (what the chart did until Phase 6b). With a domain the service is served on api.<domain> over
+  # HTTPS, and plain HTTP is redirected.
+  domain: ""
+  hostPrefix: api           # api.<domain>: every service shares the host and is told apart by its base path
 
 # --- scaling (use at most one)
 autoscaling:

@@ -1,0 +1,35 @@
+# Child application: the Argo CD webhook secret (platform/argocd-webhook/), sync-wave 20 (last).
+#
+# See platform/argocd-webhook/externalsecret.yaml for what it does and why it is separate: a
+# problem with this one secret must not stop any other application from syncing.
+# Related: bootstrap/platform-argocd.yaml (the owner of argocd-secret).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-webhook
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/argocd-webhook
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

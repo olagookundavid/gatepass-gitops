@@ -35,6 +35,7 @@ spec:
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://grafana-community.github.io/helm-charts
     - https://kyverno.github.io/kyverno
+    - https://kubernetes-sigs.github.io/external-dns
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "*"

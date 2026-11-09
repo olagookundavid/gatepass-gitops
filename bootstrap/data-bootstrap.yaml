@@ -1,0 +1,47 @@
+# Child application: the database bootstrap Job (platform/data-bootstrap/), sync-wave 11.
+#
+# Wave 11 = after cluster-config (wave 10), which holds the ClusterSecretStore the ExternalSecrets of
+# this application need. The services (wave 5) are generated earlier and their migrations may fail on
+# the first try because the roles do not exist yet; they retry, and `scripts/post-up.sh` re-syncs
+# whatever stayed failed. Own application and own namespace so that a problem here (a missing secret, a
+# database that is not ready) degrades only this application.
+#
+# The namespace is NOT labelled gatepass.dev/workloads: it hosts a platform job that uses public
+# images (pinned by digest), which the workload policies (platform/policies) would refuse.
+# Related: platform/data-bootstrap/*, gatepass-infra/45-database (the database).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: data-bootstrap
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+    targetRevision: main
+    path: platform/data-bootstrap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data-bootstrap
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

@@ -10,10 +10,19 @@
 #   xray        AWS X-Ray traces (a plugin that Grafana downloads at start)
 # Read-only IAM: gatepass-infra/60-observability/pod-identity.tf role gatepass-dev-grafana.
 #
-# ACCESS. No Ingress yet: `kubectl -n observability port-forward svc/grafana 3000:80` and
-# http://localhost:3000, user and password from Secrets Manager (walkthrough 06 step B). Login with
-# GitHub (SSO) is added in Phase 6b when a stable host name exists for the OAuth callback; until
-# then the local admin account is the only door, there is no anonymous access and no sign-up.
+# ACCESS. Two doors. `kubectl -n observability port-forward svc/grafana 3000:80` and
+# http://localhost:3000 with the local admin (user and password from Secrets Manager, walkthrough 06
+# step B), and, from Phase 6b step K, https://grafana.<domain> with "Sign in with GitHub". There is
+# no anonymous access and no free sign-up. The GitHub login is OFF in this file (auth.github.enabled
+# false) and switched on by the environment variable GF_AUTH_GITHUB_ENABLED=true that comes with the
+# Secret grafana-oauth (examples/grafana-github-sso), together with the client id and secret and the
+# public root_url, none of which belong in a public repository.
+#
+# WHO MAY LOG IN WITH GITHUB. GitHub accounts are open to everybody, so "any GitHub user" must not
+# become a Grafana user. role_attribute_path computes the Grafana role from the GitHub profile
+# and role_attribute_strict: true REFUSES the login when the result is empty: only the login named
+# below gets Admin, everybody else is denied. (A personal account has no GitHub organisation to
+# restrict by; with one, allowed_organizations is the usual control.)
 #
 # UNVERIFIED until the first run: the X-Ray plugin id and that it installs from this cluster (the
 # plugin version is not pinned: a deliberate gap, decision log); the data source field names in
@@ -40,12 +49,22 @@ plugins:
 
 envFromSecrets:
   - name: observability-endpoints   # AMP_QUERY_URL, used by the data source below
+  - name: grafana-oauth             # GitHub login settings (step K); optional: absent = login off
+    optional: true
 
 grafana.ini:
   server:
+    # The public root_url (GF_SERVER_ROOT_URL) comes from the Secret grafana-oauth. Until that
+    # exists Grafana is reached by port-forward and this value is correct for it.
     root_url: http://localhost:3000
   users:
     allow_sign_up: false
+  auth.github:
+    enabled: false                  # GF_AUTH_GITHUB_ENABLED=true (grafana-oauth) turns it on
+    allow_sign_up: true             # lets a permitted GitHub user be created on first login
+    scopes: user:email
+    role_attribute_path: "login == 'olagookundavid' && 'Admin' || ''"
+    role_attribute_strict: true     # empty role = login refused
   auth.anonymous:
     enabled: false
   analytics:

@@ -1,0 +1,9 @@
+# The public addresses of the platform's own web interfaces: argocd.<domain> and grafana.<domain>.
+# Services get theirs from charts/gatepass-service (api.<domain>); this chart is for the tools the
+# platform team uses. It only contains Ingress objects: the Services they point at belong to the
+# Argo CD and Grafana charts.
+apiVersion: v2
+name: platform-ingresses
+description: Ingresses for Argo CD and Grafana on the shared load balancer
+type: application
+version: 0.1.0
