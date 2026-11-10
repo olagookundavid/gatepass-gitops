@@ -17,7 +17,7 @@
 #                     server. selfHeal stays on: manual edits of Argo CD's objects are undone.
 #   ignoreDifferences on the argocd-secret data: Argo CD itself writes its signing key and
 #                     session secrets into that Secret at runtime; Git cannot, and must not,
-#                     say what they are.
+#                     say what they are. Also on two ConfigMap keys that Terraform owns (see below).
 #   RespectIgnoreDifferences: apply the ignore rule when syncing too, not only when comparing.
 #   no finalizer:     see the comment on metadata below.
 #
@@ -57,6 +57,19 @@ spec:
       name: argocd-secret
       jsonPointers:
         - /data
+    # Two keys are owned by Terraform (gatepass-infra/25-gitops-bootstrap/domain.tf) because they contain
+    # the domain, which the public repository does not publish: `url` in argocd-cm and `context` in
+    # argocd-notifications-cm. The chart still RENDERS a default for both (https://argocd.example.com,
+    # from its placeholder global.domain), so without this rule the self-sync overwrote the real address
+    # and SSO was announced with the placeholder (found 2026-11-10 on the first SSO test).
+    - kind: ConfigMap
+      name: argocd-cm
+      jsonPointers:
+        - /data/url
+    - kind: ConfigMap
+      name: argocd-notifications-cm
+      jsonPointers:
+        - /data/context
   syncPolicy:
     automated:
       prune: false
