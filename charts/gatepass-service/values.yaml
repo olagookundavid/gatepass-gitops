@@ -42,6 +42,9 @@ serviceAccount:
   automountToken: false
 
 probes:
+  # Where /livez and /readyz are served. false = at the root of the port (every Go service of the
+  # contracts); true = under basePath (only the walking skeleton registers them there).
+  underBasePath: false
   startup: {failureThreshold: 30, periodSeconds: 2}
   readiness: {periodSeconds: 5, failureThreshold: 3}
   liveness: {periodSeconds: 10, failureThreshold: 3}

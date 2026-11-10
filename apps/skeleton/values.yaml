@@ -16,6 +16,9 @@ env:
 resources:
   requests: {cpu: 50m, memory: 32Mi}
   limits: {memory: 64Mi}
+# The skeleton registers /livez and /readyz under its base path (the real services answer at the root).
+probes:
+  underBasePath: true
 ingress:
   enabled: true
 smokeTest:

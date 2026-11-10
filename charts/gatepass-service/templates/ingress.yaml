@@ -19,7 +19,7 @@ metadata:
   name: {{ include "gps.fullname" . }}
   labels: {{- include "gps.labels" . | nindent 4 }}
   annotations:
-    alb.ingress.kubernetes.io/healthcheck-path: {{ printf "%s/readyz" .Values.basePath | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: {{ printf "%s/readyz" (include "gps.healthPrefix" .) | quote }}
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/deregistration-delay.timeout_seconds: "30"
