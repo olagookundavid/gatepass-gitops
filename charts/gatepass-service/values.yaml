@@ -60,6 +60,12 @@ telemetry:
 # --- exposure
 service:
   type: ClusterIP
+# A SECOND listener that must never be reachable from the internet (reservations: /internal/v1/*
+# on 8081, called only by orders). It gets its own ClusterIP Service <release>-internal and NO
+# Ingress rule; who may call it is a NetworkPolicy in platform/network-policies/ (the platform's job).
+internalService:
+  enabled: false
+  port: 8081                # container and Service port (INTERNAL_HTTP_ADDR)
 ingress:
   enabled: true             # false for internal-only services and workers (no route at all)
   className: alb            # the IngressClass of platform/cluster-config/ingressclass-alb.yaml

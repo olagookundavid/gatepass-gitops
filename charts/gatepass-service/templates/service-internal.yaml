@@ -1,0 +1,23 @@
+{{- /*
+The internal Service of a service that has a second, private listener (reservations: the
+/internal/v1/* API on 8081 that only `orders` calls). It exists only when internalService.enabled.
+
+Why a separate Service and not a second port on the main one: the Ingress points at the main
+Service; if both ports shared a Service, one wrong annotation could publish the private API.
+Here the ALB never sees this Service. Name: <release>-internal, so `orders` calls
+http://reservations-internal.gatepass-reservations.svc.cluster.local:8081 . The NetworkPolicy that
+lets ONLY the orders namespace reach the port is in platform/network-policies/ (the apps project
+may not create policies).
+*/ -}}
+{{- if .Values.internalService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gps.fullname" . }}-internal
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "gps.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: internal, port: {{ .Values.internalService.port }}, targetPort: internal}
+{{- end }}

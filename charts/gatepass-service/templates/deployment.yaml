@@ -69,6 +69,9 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - {name: http, containerPort: {{ .Values.port }}}
+            {{- if .Values.internalService.enabled }}
+            - {name: internal, containerPort: {{ .Values.internalService.port }}}
+            {{- end }}
           env: {{- include "gps.env" . | nindent 12 }}
           {{- if .Values.externalSecret.enabled }}
           envFrom:

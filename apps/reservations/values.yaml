@@ -1,0 +1,54 @@
+# The reservations API (public holds API + the private internal API for `orders`). Human-owned
+# settings; the image pin is apps/reservations/dev.yaml, written by the release workflow.
+#
+# THE SERVICE: inventory and holds in DynamoDB. A hold is a 3-item transaction (ticket count,
+# hold record with a TTL, idempotency record); it schedules an EventBridge Scheduler one-time
+# schedule that invokes the hold-expirer Lambda (layer 40) when the hold runs out. Contract:
+# gatepass-app/contracts/reservations-api.yaml.
+#
+# ONE IMAGE, TWO APPLICATIONS. The same image runs the API (here) and the SQS inventory consumer
+# (apps/reservations-consumer, API switched off). Two applications so they scale and fail apart:
+# a flood of messages must not slow down the API, and a deploy of one is independent of the other.
+# Each has its own namespace, service account and AWS role (50-workloads/roles.tf).
+#
+# internalService: the PRIVATE listener (8081) gets its own Service and no Ingress rule; only the
+# orders API pods may reach it (NetworkPolicy allow-internal-api-from-orders).
+# Related: platform/network-policies/gatepass-reservations.yaml, apps/reservations-consumer.
+image:
+  repository: gatepass/reservations-api
+basePath: /reservations
+port: 8080
+replicaCount: 2
+internalService:
+  enabled: true
+  port: 8081
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  API_ENABLED: "true"
+  CONSUMER_ENABLED: "false"
+  INTERNAL_HTTP_ADDR: ":8081"
+  HOLD_TTL: 10m
+  RATE_LIMIT_PER_MINUTE: "10"
+  REDIS_IAM_AUTH: "true"
+  REDIS_SERVERLESS: "true"
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: TABLE_NAME, key: gatepass/dev/app/data-config, property: reservations_table}
+    - {secretKey: COGNITO_ISSUER, key: gatepass/dev/app/data-config, property: cognito_issuer}
+    - {secretKey: COGNITO_CLIENT_ID, key: gatepass/dev/app/data-config, property: cognito_client_id}
+    - {secretKey: SCHEDULER_GROUP_NAME, key: gatepass/dev/app/data-config, property: scheduler_group_name}
+    - {secretKey: SCHEDULER_ROLE_ARN, key: gatepass/dev/app/data-config, property: scheduler_role_arn}
+    - {secretKey: EXPIRER_LAMBDA_ARN, key: gatepass/dev/app/data-config, property: expirer_lambda_arn}
+    - {secretKey: REDIS_ADDR, key: gatepass/dev/app/database-config, property: redis_addr}
+    - {secretKey: CACHE_NAME, key: gatepass/dev/app/database-config, property: cache_name}
+    - {secretKey: REDIS_USER, key: gatepass/dev/app/database-config, property: redis_user_reservations}
+ingress:
+  enabled: true
+smokeTest:
+  enabled: true
+  path: /readyz
