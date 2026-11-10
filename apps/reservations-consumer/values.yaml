@@ -1,0 +1,39 @@
+# The reservations INVENTORY CONSUMER: the same image as apps/reservations, with the HTTP API
+# switched off and the SQS consumer switched on. Human-owned settings; the image pin is
+# apps/reservations-consumer/dev.yaml (written by the release workflow together with
+# apps/reservations/dev.yaml, so both always run the same digest).
+#
+# WHAT IT DOES: reads the queue `reservations-inventory` (fed by EventBridge rules: EventPublished
+# creates the inventory, PaymentFailed and OrderCancelled give tickets back), and applies each
+# message to DynamoDB idempotently. A message that fails 5 times lands in the DLQ (alarm in
+# layer 40). It has NO route at all (ingress off): it only makes outbound calls; the probes are
+# answered on the pod's own port for kubelet.
+#
+# Related: apps/reservations (the API), 50-workloads/roles.tf (role reservations-consumer),
+# platform/network-policies/gatepass-reservations-consumer.yaml. Scaling on queue depth with KEDA
+# comes in Phase 9 (the contract's scaling_hint names the queue).
+image:
+  repository: gatepass/reservations-api
+basePath: /reservations
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  API_ENABLED: "false"
+  CONSUMER_ENABLED: "true"
+  CONSUMER_WORKERS: "4"
+  CONSUMER_VISIBILITY_TIMEOUT: 60s
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: TABLE_NAME, key: gatepass/dev/app/data-config, property: reservations_table}
+    - {secretKey: INVENTORY_QUEUE_URL, key: gatepass/dev/app/data-config, property: inventory_queue_url}
+ingress:
+  enabled: false
+smokeTest:
+  enabled: true
+  path: /readyz

@@ -1,0 +1,59 @@
+# The catalog API's settings (human-owned, changed by pull request). The image pin (tag + digest)
+# is NOT here: apps/catalog/dev.yaml is written only by the release workflow of gatepass-app, so a
+# person never edits what the bot owns and the bot never touches what a person decided.
+#
+# WHAT THE SERVICE IS: venues, events, images (presigned S3 uploads), cache-aside reads from Valkey,
+# PostgreSQL for the data, EventPublished on the bus when an event is published. The contract it
+# follows is gatepass-app/contracts/catalog-api.yaml (every variable below comes from it).
+#
+# WHERE EACH VALUE COMES FROM
+#   env:             fixed settings, safe in a public repository (no account id, host or secret).
+#   externalSecret:  endpoints, names and ARNs live in Secrets Manager (`data-config` from layer 40,
+#                    `database-config` from layer 45, rewritten at every rebuild because the database
+#                    host changes). External Secrets copies them into a Kubernetes Secret that the pod
+#                    loads as environment variables; Git never holds them (decision log 2026-11-09).
+#   migration:       `catalog-api migrate` runs as a Sync hook Job BEFORE the new pods, with the broader
+#                    DB user catalog_migrator and its own service account (own Pod Identity role).
+# No password exists anywhere: PostgreSQL and Valkey accept an IAM token (DB_IAM_AUTH, REDIS_IAM_AUTH).
+# Related: charts/gatepass-service, platform/cluster-config/namespace-gatepass-catalog.yaml,
+# platform/network-policies/gatepass-catalog.yaml, gatepass-infra/50-workloads/roles.tf.
+image:
+  repository: gatepass/catalog-api
+basePath: /catalog
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  DB_NAME: catalog
+  DB_USER: catalog_app
+  DB_IAM_AUTH: "true"
+  DB_MAX_CONNS: "10"
+  REDIS_IAM_AUTH: "true"
+  REDIS_SERVERLESS: "true"
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: DB_HOST, key: gatepass/dev/app/database-config, property: db_host}
+    - {secretKey: REDIS_ADDR, key: gatepass/dev/app/database-config, property: redis_addr}
+    - {secretKey: CACHE_NAME, key: gatepass/dev/app/database-config, property: cache_name}
+    - {secretKey: REDIS_USER, key: gatepass/dev/app/database-config, property: redis_user_catalog}
+    - {secretKey: COGNITO_ISSUER, key: gatepass/dev/app/data-config, property: cognito_issuer}
+    - {secretKey: COGNITO_CLIENT_ID, key: gatepass/dev/app/data-config, property: cognito_client_id}
+    - {secretKey: IMAGES_BUCKET, key: gatepass/dev/app/data-config, property: images_bucket}
+    - {secretKey: CDN_BASE_URL, key: gatepass/dev/app/data-config, property: cdn_base_url}
+    - {secretKey: EVENT_BUS_NAME, key: gatepass/dev/app/data-config, property: event_bus_name}
+migration:
+  enabled: true
+  args: ["migrate"]
+  env:
+    DB_USER: catalog_migrator
+  serviceAccountName: catalog-migrate
+ingress:
+  enabled: true
+smokeTest:
+  enabled: true
+  path: /readyz

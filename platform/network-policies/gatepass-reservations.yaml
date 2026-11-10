@@ -1,0 +1,149 @@
+# Network policies of the namespace gatepass-reservations: reservations API (DynamoDB, Scheduler, Valkey rate limiter).
+#
+# Same model as gatepass-skeleton.yaml (read its header first): default deny, then exactly the
+# paths this service needs. They live in the platform repository path and not in the service's
+# chart because the `apps` project may not create NetworkPolicy objects: a bad pull request to a
+# service must not be able to open the door for itself.
+#
+# OPEN HERE:
+#   ingress 8080 from the ALB subnets; ingress 8081 (private API) ONLY from the orders API pods;
+#   egress DNS, OTLP, Pod Identity agent, HTTPS to AWS and Cognito, 6379 to the data subnets (Valkey).
+# NOT open: the internet except HTTPS, other namespaces, the data subnets except the port above.
+# kubelet probes come from the node and need no rule. Related: cluster-config/namespace-gatepass-reservations.yaml,
+# apps/reservations/values.yaml, walkthrough 10.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-telemetry-egress
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+      ports:
+        - {protocol: TCP, port: 4318}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-aws-egress
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    # The Pod Identity agent on the node hands out the role credentials.
+    - to:
+        - ipBlock: {cidr: 169.254.170.23/32}
+      ports:
+        - {protocol: TCP, port: 80}
+    # AWS APIs and the public Cognito key set: HTTPS to anywhere EXCEPT the VPC itself, so this rule
+    # cannot be used to reach other pods or the data subnets.
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.20.0.0/16]}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace-http
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-ingress
+  namespace: gatepass-reservations
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: reservations}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: 10.20.0.0/24}
+        - ipBlock: {cidr: 10.20.1.0/24}
+        - ipBlock: {cidr: 10.20.2.0/24}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-api-from-orders
+  namespace: gatepass-reservations
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: reservations}
+  policyTypes: [Ingress]
+  ingress:
+    # The private listener (8081, /internal/v1/*): ONLY pods of the orders API, nobody else, and
+    # it has no Ingress rule. A namespace selector alone would admit every pod in that namespace,
+    # so the pod label is part of the same rule (both must match).
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: gatepass-orders}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: orders}
+      ports:
+        - {protocol: TCP, port: 8081}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-valkey-egress
+  namespace: gatepass-reservations
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 10.20.100.0/24}
+        - ipBlock: {cidr: 10.20.101.0/24}
+        - ipBlock: {cidr: 10.20.102.0/24}
+      ports:
+        - {protocol: TCP, port: 6379}

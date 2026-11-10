@@ -1,0 +1,21 @@
+# Namespace gatepass-reservations-consumer: where the reservations inventory consumer (same image as the API, API switched off) runs (Phase 8, walkthrough 10).
+#
+# It is created HERE (platform project, cluster-config) and not by the service's own Application,
+# because the `apps` AppProject may not create cluster-scoped objects (projects/apps.yaml:
+# clusterResourceWhitelist is empty). The platform decides which namespaces exist and how strict
+# they are; a service only gets to run inside one. Same shape as namespace-gatepass-skeleton.yaml.
+#
+# The three pod-security labels make Kubernetes itself refuse any pod that is not `restricted`
+# (non-root, no privilege escalation, dropped capabilities, seccomp), a second fence next to the
+# Kyverno policies. gatepass.dev/workloads=true is the label the network policies and Kyverno
+# select on. Related: platform/network-policies/gatepass-reservations-consumer.yaml, apps/reservations-consumer/values.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatepass-reservations-consumer
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd
+    gatepass.dev/workloads: "true"
