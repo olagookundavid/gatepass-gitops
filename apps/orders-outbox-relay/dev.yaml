@@ -1,0 +1,6 @@
+# WRITTEN BY THE RELEASE WORKFLOW of gatepass-app. Do not edit by hand.
+# The image deployed in dev: the tag is a label (the commit), the digest decides the bytes.
+# To roll back, revert the pull request that changed this file.
+image:
+  tag: sha-a6eb747
+  digest: sha256:eee713f6a4fab0807651b99b02d543f71182ae5351252f9b0c0f11a5cfee3922
