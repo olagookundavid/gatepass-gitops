@@ -1,0 +1,41 @@
+# The orders OUTBOX RELAY: the second half of the transactional outbox. The API and the worker write an
+# event row in the SAME transaction as the order change; this process reads the unpublished rows and
+# puts them on the EventBridge bus (OrderPlaced, OrderPaid, PaymentFailed, OrderCancelled), then marks
+# them published. So an event is never lost when the process dies between "commit" and "publish", and
+# never published for a transaction that rolled back. It also re-queues payments whose request was never
+# sent (the API crashed after the commit). Human-owned settings; the pin is apps/orders-outbox-relay/dev.yaml.
+#
+# TWO replicas on purpose: rows are claimed with SELECT ... FOR UPDATE SKIP LOCKED, so the replicas share
+# the backlog and never publish the same row at once (proven locally, HANDOFF.md). One replica going down
+# does not stop the events. Alarm to build: `outbox_unpublished` above 0 for minutes.
+# No route (ingress off); probes at the ROOT, hence `basePath: ""`.
+# Related: apps/orders, platform/network-policies/gatepass-orders-outbox-relay.yaml.
+image:
+  repository: gatepass/orders-outbox-relay
+basePath: ""
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  DB_NAME: orders
+  DB_MAX_CONNS: "5"
+  OUTBOX_BATCH_SIZE: "25"
+  OUTBOX_POLL_INTERVAL: 1s
+  PAYMENT_RECONCILE_AFTER: 30s
+  OUTBOX_RETENTION: 168h
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: DB_HOST, key: gatepass/dev/app/database-config, property: db_host}
+    - {secretKey: DB_SECRET_ID, key: gatepass/dev/app/data-config, property: orders_app_secret_id}
+    - {secretKey: EVENT_BUS_NAME, key: gatepass/dev/app/data-config, property: event_bus_name}
+    - {secretKey: PAYMENTS_QUEUE_URL, key: gatepass/dev/app/data-config, property: payments_queue_url}
+ingress:
+  enabled: false
+smokeTest:
+  enabled: true
+  path: /readyz

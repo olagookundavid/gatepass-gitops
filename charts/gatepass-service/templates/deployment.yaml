@@ -33,7 +33,7 @@ spec:
     metadata:
       labels: {{- include "gps.labels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ dict "env" .Values.env "ext" .Values.externalSecret | toJson | sha256sum }}
+        checksum/config: {{ dict "env" .Values.env "ext" .Values.externalSecret "files" .Values.secretFiles | toJson | sha256sum }}
     spec:
       serviceAccountName: {{ include "gps.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
@@ -90,6 +90,14 @@ spec:
             {{- toYaml .Values.probes.liveness | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- if .Values.secretFiles.enabled }}
+            - {name: secret-files, mountPath: {{ .Values.secretFiles.mountPath }}, readOnly: true}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.secretFiles.enabled }}
+        # defaultMode 0440 + fsGroup 65532 (pod securityContext): readable by the service user only.
+        - name: secret-files
+          secret: {secretName: {{ include "gps.fullname" . }}-files, defaultMode: 0440}
+        {{- end }}

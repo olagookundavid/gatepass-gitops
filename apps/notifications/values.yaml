@@ -1,0 +1,32 @@
+# The notifications API: a signed-in user lists their notifications, reads and saves preferences, and
+# asks for a time-limited DOWNLOAD LINK to a ticket (an S3 presigned URL). Human-owned settings; the
+# image pin is apps/notifications/dev.yaml (written by the release workflow).
+#
+# No database server: DynamoDB (IAM, no password). The service never reads the signing key (that is the
+# worker's); it only signs S3 links with its role's credentials, which is why its role may GetObject on
+# tickets/* (a link signed by a role that cannot read the object returns 403).
+# Contract: gatepass-app/contracts/notifications-api.yaml.
+# Related: apps/notifications-worker (the producer of the data), platform/network-policies/gatepass-notifications.yaml.
+image:
+  repository: gatepass/notifications-api
+basePath: /notifications
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: TABLE_NAME, key: gatepass/dev/app/data-config, property: notifications_table}
+    - {secretKey: TICKETS_BUCKET, key: gatepass/dev/app/data-config, property: tickets_bucket}
+    - {secretKey: COGNITO_ISSUER, key: gatepass/dev/app/data-config, property: cognito_issuer}
+    - {secretKey: COGNITO_CLIENT_ID, key: gatepass/dev/app/data-config, property: cognito_client_id}
+ingress:
+  enabled: true
+smokeTest:
+  enabled: true
+  path: /readyz

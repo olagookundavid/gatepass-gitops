@@ -1,0 +1,111 @@
+# Network policies of the namespace gatepass-orders-worker: the payment worker (reads the payments queue, writes order status to PostgreSQL).
+#
+# Same model as gatepass-catalog.yaml and gatepass-reservations.yaml (read gatepass-skeleton.yaml first):
+# default deny, then exactly the paths this service needs. They live in the platform repository path
+# and not in the service's chart because the `apps` project may not create NetworkPolicy objects: a bad
+# pull request to a service must not be able to open the door for itself.
+#
+# OPEN HERE:
+#   no ingress at all (it only polls a queue); egress DNS, OTLP, Pod Identity agent, HTTPS to AWS
+#   (SQS, Secrets Manager), 5432 to the data subnets (PostgreSQL).
+# NOT open: the internet except HTTPS, other namespaces, the data subnets except the ports above.
+# kubelet probes come from the node and need no rule. Related: cluster-config/namespace-gatepass-orders-worker.yaml,
+# apps/orders-worker/values.yaml, walkthrough 11.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-telemetry-egress
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+      ports:
+        - {protocol: TCP, port: 4318}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-aws-egress
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    # The Pod Identity agent on the node hands out the role credentials.
+    - to:
+        - ipBlock: {cidr: 169.254.170.23/32}
+      ports:
+        - {protocol: TCP, port: 80}
+    # AWS APIs (and Cognito's public key set): HTTPS to anywhere EXCEPT the VPC itself, so this rule
+    # cannot be used to reach other pods or the data subnets.
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.20.0.0/16]}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace-http
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-egress
+  namespace: gatepass-orders-worker
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 10.20.100.0/24}
+        - ipBlock: {cidr: 10.20.101.0/24}
+        - ipBlock: {cidr: 10.20.102.0/24}
+      ports:
+        - {protocol: TCP, port: 5432}
