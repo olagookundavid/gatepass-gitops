@@ -16,7 +16,7 @@ argocd:
   healthcheckPath: /healthz
 
 grafana:
-  enabled: false            # becomes true in the pull request of walkthrough 08 step K (GitHub login ready)
+  enabled: true             # GitHub login configured (walkthrough 08 step K); only one GitHub login is let in
   namespace: observability
   service: grafana
   port: 80
