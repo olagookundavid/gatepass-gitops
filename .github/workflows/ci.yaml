@@ -111,6 +111,10 @@ jobs:
       # Karpenter's charts come from an OCI registry; the runner reads them anonymously.
       - name: Render every chart with our values
         run: ruby hack/render-charts.rb
+      # helm template only checks the outer YAML; every trigger/template inside the notifications
+      # ConfigMap is a YAML string of its own and must parse (a broken one silenced all Slack messages).
+      - name: Parse the notification triggers and templates
+        run: ruby hack/check-notification-triggers.rb
 
   policies:
     name: policy-tests
