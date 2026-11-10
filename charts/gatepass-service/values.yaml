@@ -17,7 +17,8 @@ image:
 
 # --- identity of the process
 port: 8080                  # container and Service port (HTTP_ADDR)
-basePath: ""                # public route prefix, e.g. /skeleton ; Ingress and probes use it
+basePath: ""                # public route prefix, e.g. /skeleton ; Ingress and probes use it. Empty only for a
+                            # worker without Ingress (probes at /livez and /readyz); the schema enforces that
 env: {}                     # plain, non-secret environment variables (a map)
 
 # --- pods
@@ -101,6 +102,15 @@ externalSecret:
   refreshInterval: 1h
   storeName: aws-secretsmanager
   data: []                  # [{secretKey: DB_PASSWORD, key: gatepass/dev/app/x, property: password}]
+
+# --- secrets that must be FILES, not environment variables (a signing key: `kubectl describe pod`
+# shows environment variables, it does not show the content of a mounted file). A second ExternalSecret
+# (<release>-files) copies each row into a key of a Kubernetes Secret; the Deployment mounts that
+# Secret read-only at mountPath, one file per fileName. Used by notifications-worker (QR signing key).
+secretFiles:
+  enabled: false
+  mountPath: /var/run/secrets/app
+  data: []                  # [{fileName: signing-key, key: gatepass/dev/app/ticket-signing-key, property: ""}]
 
 # --- database migrations: a Job in the Sync phase, wave -1 (runs before the Deployment is updated)
 migration:

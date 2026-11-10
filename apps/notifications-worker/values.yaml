@@ -1,0 +1,52 @@
+# The notifications WORKER: reads the queue `notifications` (EventBridge rules deliver OrderPaid,
+# PaymentFailed and OrderCancelled to it), and for each event: looks the buyer's e-mail address up in
+# Cognito, renders a ticket PNG with a QR code to S3 (OrderPaid only), sends the mail with SES, and
+# writes a log item. Duplicates are ignored through a marker item per eventId (TTL), so a redelivered
+# message sends no second mail. Human-owned settings; the pin is apps/notifications-worker/dev.yaml.
+#
+# THE SIGNING KEY is the one real secret here. It reaches the pod as a FILE, not an environment
+# variable: `secretFiles` below makes the chart create a second ExternalSecret (<release>-files) and
+# mount it at /var/run/secrets/ticket, so the service reads /var/run/secrets/ticket/signing-key
+# (TICKET_SIGNING_KEY_FILE). The secret itself is made by 40-data/ticket-key.tf (random, write-only,
+# never in state). Rotating it invalidates tickets already issued.
+#
+# SES SANDBOX: the account may only send to verified addresses, so EMAIL_RECIPIENT_OVERRIDE sends every
+# mail to ONE verified address (kept in Secrets Manager, not here: it is a personal address and this
+# repository is public). When SES production access is granted, remove that row.
+# No route (ingress off); probes at the ROOT, hence `basePath: ""`. KEDA scaling on the queue: Phase 9.
+# Related: apps/notifications, platform/network-policies/gatepass-notifications-worker.yaml.
+image:
+  repository: gatepass/notifications-worker
+basePath: ""
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  WORKER_CONCURRENCY: "4"
+  CONSUMER_VISIBILITY_TIMEOUT: 60s
+  TICKET_LINK_TTL: 24h
+  TICKET_SIGNING_KEY_FILE: /var/run/secrets/ticket/signing-key
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: TABLE_NAME, key: gatepass/dev/app/data-config, property: notifications_table}
+    - {secretKey: TICKETS_BUCKET, key: gatepass/dev/app/data-config, property: tickets_bucket}
+    - {secretKey: NOTIFICATIONS_QUEUE_URL, key: gatepass/dev/app/data-config, property: notifications_queue_url}
+    - {secretKey: COGNITO_USER_POOL_ID, key: gatepass/dev/app/data-config, property: cognito_user_pool_id}
+    - {secretKey: SES_FROM_ADDRESS, key: gatepass/dev/app/data-config, property: ses_from_address}
+    - {secretKey: SES_CONFIGURATION_SET, key: gatepass/dev/app/data-config, property: ses_configuration_set}
+    - {secretKey: EMAIL_RECIPIENT_OVERRIDE, key: gatepass/dev/app/data-config, property: ses_recipient_override}
+secretFiles:
+  enabled: true
+  mountPath: /var/run/secrets/ticket
+  data:
+    - {fileName: signing-key, key: gatepass/dev/app/ticket-signing-key}
+ingress:
+  enabled: false
+smokeTest:
+  enabled: true
+  path: /readyz

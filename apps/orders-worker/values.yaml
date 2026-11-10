@@ -1,0 +1,39 @@
+# The orders PAYMENT WORKER: reads `orders-payments`, simulates a payment (80% approved, the rest split
+# into declines and transient errors), and records the outcome in PostgreSQL in one transaction with an
+# outbox row (OrderPaid / PaymentFailed), so the relay publishes it. Human-owned settings; the image pin
+# is apps/orders-worker/dev.yaml (written by the release workflow).
+#
+# At-least-once: a message that is not deleted comes back after the visibility timeout (60 s, extended
+# by a heartbeat while it is processed), and after 5 receives it goes to the DLQ (alarm in layer 40).
+# The status change is conditional (only from `pending`), so a repeat does nothing.
+# No route (ingress off): the pod only polls; the probes are answered on 8080 for kubelet, at the ROOT
+# (/livez, /readyz): the contract has base_path null, hence `basePath: ""`.
+# Scaling on queue age with KEDA comes in Phase 9 (the contract's scaling_hint).
+# Related: apps/orders (same database secret), platform/network-policies/gatepass-orders-worker.yaml.
+image:
+  repository: gatepass/orders-worker
+basePath: ""
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  DB_NAME: orders
+  DB_MAX_CONNS: "10"
+  WORKER_CONCURRENCY: "4"
+  CONSUMER_VISIBILITY_TIMEOUT: 60s
+  PAYMENT_SUCCESS_RATE: "0.8"
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: DB_HOST, key: gatepass/dev/app/database-config, property: db_host}
+    - {secretKey: DB_SECRET_ID, key: gatepass/dev/app/data-config, property: orders_app_secret_id}
+    - {secretKey: PAYMENTS_QUEUE_URL, key: gatepass/dev/app/data-config, property: payments_queue_url}
+ingress:
+  enabled: false
+smokeTest:
+  enabled: true
+  path: /readyz

@@ -1,0 +1,18 @@
+# Namespace gatepass-notifications: where the notifications API (a user's notifications and ticket download links; DynamoDB, S3 presign) runs (Phase 8, walkthrough 11).
+#
+# Created HERE (platform project, cluster-config) and not by the service's own Application, because the
+# `apps` AppProject may not create cluster-scoped objects (projects/apps.yaml: clusterResourceWhitelist
+# is empty). One namespace per deployable, so that a NetworkPolicy and a role can be exact: the pods of
+# notifications are the only pods in this namespace. Same shape as namespace-gatepass-catalog.yaml (read its
+# header for the pod-security labels and gatepass.dev/workloads).
+# Related: platform/network-policies/gatepass-notifications.yaml, apps/notifications/values.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatepass-notifications
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/managed-by: argocd
+    gatepass.dev/workloads: "true"

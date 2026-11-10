@@ -1,0 +1,57 @@
+# The orders API (human-owned settings; the image pin is apps/orders/dev.yaml, written by the release
+# workflow, which pins the three orders applications together because they are ONE image per binary
+# family built from the same commit).
+#
+# THE SERVICE: turns a hold into an order. In ONE PostgreSQL transaction it consumes the hold (through
+# the PRIVATE reservations API), writes the order and an outbox row; after the commit it queues a
+# payment request. Repeating the request with the same Idempotency-Key returns the same order.
+# Contract: gatepass-app/contracts/orders-api.yaml.
+#
+# WHAT IS DIFFERENT FROM catalog: the database login is a PASSWORD, not an IAM token. The password is
+# a Secrets Manager secret (orders_app, made by 40-data/db-secrets.tf) that the SERVICE reads itself at
+# start-up with its own Pod Identity role (DB_SECRET_ID is only the secret's NAME). It is read again
+# after one failed login, so a rotated password costs no downtime. The value is never in Git, in an
+# environment variable or in a Kubernetes Secret. The migration Job runs the same image with the other
+# secret (orders_migrator, the role that may create tables).
+#
+# Three applications, one namespace each: orders (this), orders-worker (payments), orders-outbox-relay
+# (events). They scale and fail apart and have separate roles.
+# Related: platform/network-policies/gatepass-orders.yaml (the door to reservations 8081 and RDS 5432),
+# gatepass-infra/50-workloads/roles.tf (roles orders and orders-migrate).
+image:
+  repository: gatepass/orders-api
+basePath: /orders
+port: 8080
+replicaCount: 2
+env:
+  LOG_LEVEL: info
+  AWS_REGION: us-east-1
+  DB_NAME: orders
+  DB_MAX_CONNS: "10"
+  # Cluster-internal DNS name of the private listener of reservations (no Ingress, NetworkPolicy
+  # allow-internal-api-from-orders). Not a secret and no account id.
+  RESERVATIONS_INTERNAL_URL: http://reservations-internal.gatepass-reservations.svc.cluster.local:8081
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+externalSecret:
+  enabled: true
+  data:
+    - {secretKey: DB_HOST, key: gatepass/dev/app/database-config, property: db_host}
+    - {secretKey: DB_SECRET_ID, key: gatepass/dev/app/data-config, property: orders_app_secret_id}
+    - {secretKey: COGNITO_ISSUER, key: gatepass/dev/app/data-config, property: cognito_issuer}
+    - {secretKey: COGNITO_CLIENT_ID, key: gatepass/dev/app/data-config, property: cognito_client_id}
+    - {secretKey: PAYMENTS_QUEUE_URL, key: gatepass/dev/app/data-config, property: payments_queue_url}
+migration:
+  enabled: true
+  args: ["migrate"]
+  env:
+    # An env entry beats envFrom: the Job signs in as orders_migrator, not orders_app. The name of a
+    # secret is not a secret (the VALUE is, and only the migrate role may read it).
+    DB_SECRET_ID: gatepass/dev/app/orders-migrator-db
+  serviceAccountName: orders-migrate
+ingress:
+  enabled: true
+smokeTest:
+  enabled: true
+  path: /readyz
