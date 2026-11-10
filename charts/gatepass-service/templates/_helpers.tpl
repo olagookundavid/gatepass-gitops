@@ -27,24 +27,34 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 
 {{- define "gps.image" -}}{{ .Values.image.registry }}/{{ .Values.image.repository }}@{{ .Values.image.digest }}{{- end }}
 
-{{- /* Environment shared by the Deployment and the migration Job. */ -}}
-{{- define "gps.env" -}}
-- {name: HTTP_ADDR, value: {{ printf ":%d" (int .Values.port) | quote }}}
-- {name: BASE_PATH, value: {{ .Values.basePath | quote }}}
-{{- if .Values.telemetry.enabled }}
-- {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ .Values.telemetry.endpoint | quote }}}
+{{- /* Environment shared by the Deployment and the migration Job. The Job passes its own overrides
+(migration.env) as `extra`: they REPLACE the entry of the same name in `env` (two entries with one
+name make the API server refuse the Job: found 2026-11-10, catalog DB_USER). */ -}}
+{{- define "gps.envWith" -}}
+{{- $root := .root -}}
+{{- $env := mergeOverwrite (deepCopy $root.Values.env) .extra -}}
+- {name: HTTP_ADDR, value: {{ printf ":%d" (int $root.Values.port) | quote }}}
+- {name: BASE_PATH, value: {{ $root.Values.basePath | quote }}}
+{{- if $root.Values.telemetry.enabled }}
+- {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ $root.Values.telemetry.endpoint | quote }}}
 - {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "http/protobuf"}
-- {name: OTEL_SERVICE_NAME, value: {{ include "gps.fullname" . | quote }}}
-- {name: OTEL_RESOURCE_ATTRIBUTES, value: {{ printf "deployment.environment=%s,service.version=%s" .Values.telemetry.environment .Values.image.tag | quote }}}
-- {name: OTEL_TRACES_SAMPLER, value: {{ .Values.telemetry.sampler | quote }}}
-{{- if .Values.telemetry.samplerArg }}
-- {name: OTEL_TRACES_SAMPLER_ARG, value: {{ .Values.telemetry.samplerArg | quote }}}
+- {name: OTEL_SERVICE_NAME, value: {{ include "gps.fullname" $root | quote }}}
+- {name: OTEL_RESOURCE_ATTRIBUTES, value: {{ printf "deployment.environment=%s,service.version=%s" $root.Values.telemetry.environment $root.Values.image.tag | quote }}}
+- {name: OTEL_TRACES_SAMPLER, value: {{ $root.Values.telemetry.sampler | quote }}}
+{{- if $root.Values.telemetry.samplerArg }}
+- {name: OTEL_TRACES_SAMPLER_ARG, value: {{ $root.Values.telemetry.samplerArg | quote }}}
 {{- end }}
 {{- end }}
-{{- range $k, $v := .Values.env }}
+{{- range $k, $v := $env }}
 - {name: {{ $k }}, value: {{ $v | quote }}}
 {{- end }}
 {{- end }}
+{{- define "gps.env" -}}{{ include "gps.envWith" (dict "root" . "extra" (dict)) }}{{- end }}
+
+{{- /* Where the probes live: the Go services answer /livez and /readyz at the ROOT of the port (their
+contracts), only the skeleton registers them under its base path (probes.underBasePath). Used by the
+Deployment probes, the ALB health check and the smoke test. */ -}}
+{{- define "gps.healthPrefix" -}}{{ if .Values.probes.underBasePath }}{{ .Values.basePath }}{{ end }}{{- end }}
 
 {{- /* The security settings every container gets: non-root, read-only filesystem, no capabilities. */ -}}
 {{- define "gps.containerSecurity" -}}

@@ -33,7 +33,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url="http://{{ include "gps.fullname" . }}:{{ .Values.port }}{{ .Values.basePath }}{{ .Values.smokeTest.path }}"
+              url="http://{{ include "gps.fullname" . }}:{{ .Values.port }}{{ include "gps.healthPrefix" . }}{{ .Values.smokeTest.path }}"
               i=0
               while [ "$i" -lt {{ .Values.smokeTest.attempts }} ]; do
                 if wget -q -T 3 -O /dev/null "$url"; then echo "OK $url"; exit 0; fi

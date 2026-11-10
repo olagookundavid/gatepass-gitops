@@ -80,13 +80,13 @@ spec:
           resources: {{- toYaml .Values.resources | nindent 12 }}
           securityContext: {{- include "gps.containerSecurity" . | nindent 12 }}
           startupProbe:
-            httpGet: {path: {{ printf "%s/livez" .Values.basePath }}, port: http}
+            httpGet: {path: {{ printf "%s/livez" (include "gps.healthPrefix" .) }}, port: http}
             {{- toYaml .Values.probes.startup | nindent 12 }}
           readinessProbe:
-            httpGet: {path: {{ printf "%s/readyz" .Values.basePath }}, port: http}
+            httpGet: {path: {{ printf "%s/readyz" (include "gps.healthPrefix" .) }}, port: http}
             {{- toYaml .Values.probes.readiness | nindent 12 }}
           livenessProbe:
-            httpGet: {path: {{ printf "%s/livez" .Values.basePath }}, port: http}
+            httpGet: {path: {{ printf "%s/livez" (include "gps.healthPrefix" .) }}, port: http}
             {{- toYaml .Values.probes.liveness | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}

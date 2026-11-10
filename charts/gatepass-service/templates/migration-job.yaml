@@ -33,10 +33,7 @@ spec:
           image: {{ include "gps.image" . | quote }}
           args: {{- toYaml .Values.migration.args | nindent 12 }}
           env:
-            {{- include "gps.env" . | nindent 12 }}
-            {{- range $k, $v := .Values.migration.env }}
-            - {name: {{ $k }}, value: {{ $v | quote }}}
-            {{- end }}
+            {{- include "gps.envWith" (dict "root" . "extra" .Values.migration.env) | nindent 12 }}
           {{- if .Values.externalSecret.enabled }}
           envFrom:
             - secretRef: {name: {{ include "gps.fullname" . }}-secrets}
