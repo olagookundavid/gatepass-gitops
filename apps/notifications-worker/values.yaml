@@ -47,6 +47,42 @@ secretFiles:
     - {fileName: signing-key, key: gatepass/dev/app/ticket-signing-key}
 ingress:
   enabled: false
+# No smoke test: the worker scales to ZERO, and the PostSync test calls the pod's /readyz; with no pod it would
+# fail every deploy made while the queue is empty. Readiness is still checked by the probes and by Argo CD's health.
 smokeTest:
-  enabled: true
+  enabled: false
   path: /readyz
+
+# --- SCALING AND DISRUPTION (Phase 9, walkthrough 12) ---------------------------------------------
+# KEDA scales this Deployment on the length of the queue (messages waiting + in flight, 5 per replica),
+# between 0 and 4 replicas. KEDA reads SQS with the identity of ITS OWN operator pod
+# (ClusterTriggerAuthentication keda-aws-operator); the queue URL is read from this pod's environment
+# variable NOTIFICATIONS_QUEUE_URL, so it is not written in Git. Messages are retried, so an interrupted pod loses nothing.
+# SPOT: the worker may run on the tainted Spot pool and PREFERS it (cheaper); if no Spot node exists it
+# runs on-demand. PDB: maxUnavailable 1, because minAvailable 1 on a single replica would make a node
+# drain wait forever.
+keda:
+  enabled: true
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURLFromEnv: NOTIFICATIONS_QUEUE_URL
+        queueLength: "5"
+        awsRegion: us-east-1
+tolerations:
+  - {key: gatepass.dev/spot, operator: Equal, value: "true", effect: NoSchedule}
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - {key: karpenter.sh/capacity-type, operator: In, values: [spot]}
+pdb:
+  maxUnavailable: 1
+# MIN 0: with an empty queue there is no pod at all (no cost); the first message waits for KEDA's next poll (15 s) and
+# a pod start (about 20 s). Used where a short delay is invisible (mail); the payment worker and the inventory consumer keep 1.

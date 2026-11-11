@@ -30,3 +30,20 @@ ingress:
 smokeTest:
   enabled: true
   path: /readyz
+
+# --- SCALING AND DISRUPTION (Phase 9, walkthrough 12) ---------------------------------------------
+# HPA on CPU: 2 replicas is the floor (one per zone is the point of the hard zone spread), 6 the ceiling
+# (cost and database connections: each pod opens up to DB_MAX_CONNS). The chart then writes no `replicas`
+# (otherwise Argo CD and the HPA fight). Hard zone spread: losing an availability zone must not take a
+# service down. preStop + grace period: the pod keeps serving 10 s after it was taken off the load
+# balancer, then the service's own SHUTDOWN_DELAY (5 s) and drain fit inside 45 s.
+# APIs have NO Spot toleration: they stay on the on-demand pool (the baseline).
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+topologySpread:
+  zone: DoNotSchedule
+preStopSleepSeconds: 10
+terminationGracePeriodSeconds: 45

@@ -1,0 +1,60 @@
+# Child application: Argo Rollouts, progressive delivery (Phase 9), sync-wave 0.
+#
+# What it does: a controller and a Rollout resource that replaces the Deployment of a service. Instead of
+# "replace every pod, hope", a Rollout moves the replicas to the new version in steps (25%, 50%, 100%),
+# and between steps runs an ANALYSIS: PromQL questions about the new version's error rate and latency,
+# answered by the Prometheus workspace (AMP). If the answers are bad the Rollout aborts by itself and the
+# old version keeps serving. Gatepass turns it on for `catalog` (values: rollout.enabled); the chart
+# renders Deployment or Rollout from the same pod template.
+#
+# The controller queries AMP with SigV4 using the identity of its OWN pod: Pod Identity role
+# `argo-rollouts` (gatepass-infra/30-platform-aws/rollouts.tf, service account `argo-rollouts` in
+# namespace `argo-rollouts`). The dashboard is off (kubectl argo rollouts and Argo CD show the state).
+# The CRDs are large, hence ServerSideApply.
+#
+# Chart 2.43.8 = Argo Rollouts v1.10.1 (a release older than two weeks, as for every pin).
+# Related: platform/argo-rollouts/values.yaml, charts/gatepass-service/templates/rollout.yaml and
+# analysis.yaml, projects/platform.yaml (argo-helm is an allowed source already).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-rollouts
+      targetRevision: 2.43.8
+      helm:
+        releaseName: argo-rollouts
+        valueFiles:
+          - $values/platform/argo-rollouts/values.yaml
+    - repoURL: git@github.com:olagookundavid/gatepass-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

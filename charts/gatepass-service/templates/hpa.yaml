@@ -7,7 +7,12 @@ metadata:
   name: {{ include "gps.fullname" . }}
   labels: {{- include "gps.labels" . | nindent 4 }}
 spec:
-  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ include "gps.fullname" . }}}
+  scaleTargetRef:
+    {{- if .Values.rollout.enabled }}
+    {apiVersion: argoproj.io/v1alpha1, kind: Rollout, name: {{ include "gps.fullname" . }}}
+    {{- else }}
+    {apiVersion: apps/v1, kind: Deployment, name: {{ include "gps.fullname" . }}}
+    {{- end }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
@@ -15,4 +20,9 @@ spec:
       resource:
         name: cpu
         target: {type: Utilization, averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}}
+  # Scale out fast (a traffic spike is a user waiting), scale in slowly (flapping costs more than a few
+  # idle pods): no stabilisation delay going up, five minutes going down, at most one pod per minute.
+  behavior:
+    scaleUp: {stabilizationWindowSeconds: 0, policies: [{type: Pods, value: 2, periodSeconds: 30}]}
+    scaleDown: {stabilizationWindowSeconds: 300, policies: [{type: Pods, value: 1, periodSeconds: 60}]}
 {{- end }}

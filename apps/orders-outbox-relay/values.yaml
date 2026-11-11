@@ -39,3 +39,10 @@ ingress:
 smokeTest:
   enabled: true
   path: /readyz
+
+# --- SCALING AND DISRUPTION (Phase 9, walkthrough 12) ---------------------------------------------
+# NOT autoscaled: two fixed replicas on the on-demand pool. The relay is the one process that moves order
+# events out of the database; its replicas share the backlog (SKIP LOCKED) and each polls the database every
+# second, so more pods would add database load, not speed. It carries no Spot toleration for the same
+# reason (the event flow should not depend on a reclaimable machine). PDB minAvailable 1 of 2 (default):
+# a drain takes one relay at a time.

@@ -1,0 +1,67 @@
+{{- /*
+What "the canary is healthy" means, as two PromQL questions about the NEW version only (label
+service_version = the image tag of this release):
+  error-rate   share of 5xx among its requests in the last `window`; no requests at all counts as 0
+               (no evidence is not a failure here; production also requires a minimum request count);
+  p95-latency  95th percentile of its request duration; NaN (no traffic) passes.
+Health probe routes are excluded, as in the dashboards. The workspace address is read from the Secret
+<release>-analysis (an ExternalSecret copies it from Secrets Manager: not in Git). SigV4: the Rollouts
+controller signs the query with its own Pod Identity role (30-platform-aws/rollouts.tf, aps:QueryMetrics).
+*/ -}}
+{{- if .Values.rollout.enabled }}
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "gps.fullname" . }}-analysis
+  labels: {{- include "gps.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  refreshInterval: {{ .Values.externalSecret.refreshInterval }}
+  secretStoreRef: {kind: ClusterSecretStore, name: {{ .Values.externalSecret.storeName }}}
+  target: {name: {{ include "gps.fullname" . }}-analysis}
+  data:
+    - secretKey: address
+      remoteRef:
+        key: {{ .Values.rollout.analysis.prometheusSecretKey }}
+        property: {{ .Values.rollout.analysis.prometheusSecretProperty }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "gps.fullname" . }}-canary
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: canary-version
+    - name: prometheus-address
+      valueFrom:
+        secretKeyRef: {name: {{ include "gps.fullname" . }}-analysis, key: address}
+  metrics:
+    - name: error-rate
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      successCondition: result[0] < {{ .Values.rollout.analysis.maxErrorRate }}
+      provider:
+        prometheus:
+          address: "{{ "{{" }}args.prometheus-address{{ "}}" }}"
+          authentication:
+            sigv4: {region: {{ .Values.rollout.analysis.region }}}
+          query: |
+            (sum(rate(http_server_request_duration_seconds_count{service_name="{{ include "gps.fullname" . }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_response_status_code=~"5..",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}])) or vector(0))
+            /
+            (sum(rate(http_server_request_duration_seconds_count{service_name="{{ include "gps.fullname" . }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}])) > 0 or vector(1))
+    - name: p95-latency
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      successCondition: isNaN(result[0]) || result[0] < {{ .Values.rollout.analysis.maxP95Seconds }}
+      provider:
+        prometheus:
+          address: "{{ "{{" }}args.prometheus-address{{ "}}" }}"
+          authentication:
+            sigv4: {region: {{ .Values.rollout.analysis.region }}}
+          query: |
+            histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name="{{ include "gps.fullname" . }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}])))
+{{- end }}
