@@ -5,7 +5,10 @@ image.repository, because the Go services set their own OpenTelemetry service na
 name returns nothing, found 2026-11-11 and a canary with no data would have passed):
   error-rate   share of 5xx among its requests in the last `window`; no requests at all counts as 0
                (no evidence is not a failure here; production also requires a minimum request count);
-  p95-latency  95th percentile of its request duration; NaN (no traffic) passes.
+  p95-latency  95th percentile of its request duration; no series yet counts as 0 (`or vector(0)`):
+               histogram_quantile returns an EMPTY result, not NaN, when the canary has served nothing, and an
+               empty result is an Error that aborted the first real canary (2026-11-11). `initialDelay` gives
+               the new pods time to serve traffic and the metrics time to reach AMP before the first look.
 Health probe routes are excluded, as in the dashboards. The workspace address is read from the Secret
 <release>-analysis (an ExternalSecret copies it from Secrets Manager: not in Git). SigV4: the Rollouts
 controller signs the query with its own Pod Identity role (30-platform-aws/rollouts.tf, aps:QueryMetrics).
@@ -41,6 +44,7 @@ spec:
         secretKeyRef: {name: {{ include "gps.fullname" . }}-analysis, key: address}
   metrics:
     - name: error-rate
+      initialDelay: {{ .Values.rollout.analysis.initialDelay }}
       interval: {{ .Values.rollout.analysis.interval }}
       count: {{ .Values.rollout.analysis.count }}
       failureLimit: {{ .Values.rollout.analysis.failureLimit }}
@@ -55,15 +59,16 @@ spec:
             /
             (sum(rate(http_server_request_duration_seconds_count{service_name="{{ base .Values.image.repository }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}])) > 0 or vector(1))
     - name: p95-latency
+      initialDelay: {{ .Values.rollout.analysis.initialDelay }}
       interval: {{ .Values.rollout.analysis.interval }}
       count: {{ .Values.rollout.analysis.count }}
       failureLimit: {{ .Values.rollout.analysis.failureLimit }}
-      successCondition: isNaN(result[0]) || result[0] < {{ .Values.rollout.analysis.maxP95Seconds }}
+      successCondition: result[0] < {{ .Values.rollout.analysis.maxP95Seconds }}
       provider:
         prometheus:
           address: "{{ "{{" }}args.prometheus-address{{ "}}" }}"
           authentication:
             sigv4: {region: {{ .Values.rollout.analysis.region }}}
           query: |
-            histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name="{{ base .Values.image.repository }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}])))
+            histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name="{{ base .Values.image.repository }}",service_version="{{ "{{" }}args.canary-version{{ "}}" }}",http_route!~".*/(livez|readyz)"}[{{ .Values.rollout.analysis.window }}]))) or vector(0)
 {{- end }}

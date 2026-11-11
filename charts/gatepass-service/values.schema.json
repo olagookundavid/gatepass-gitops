@@ -307,6 +307,10 @@
             },
             "region": {
               "type": "string"
+            },
+            "initialDelay": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m)$"
             }
           }
         }

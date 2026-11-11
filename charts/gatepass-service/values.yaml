@@ -146,6 +146,7 @@ rollout:
     - setWeight: 50
     - analysis: true
   analysis:
+    initialDelay: 60s       # wait before the first measurement: pods must serve and metrics must reach AMP
     interval: 30s
     count: 4                # measurements per analysis step (4 x 30 s = 2 minutes of evidence)
     failureLimit: 1         # failed measurements tolerated before the rollout aborts
