@@ -52,6 +52,12 @@ spec:
       labels:
         app.kubernetes.io/part-of: gatepass
         gatepass.dev/environment: dev
+      annotations:
+        # Compare on the SERVER (dry-run apply) instead of client-side. The Argo Rollouts controller and the
+        # CRD defaulting add fields to a Rollout that the rendered manifest does not contain; the client-side
+        # comparison then showed OutOfSync forever although `argocd app diff` was empty (catalog, 2026-11-11;
+        # the same cure as for the Kyverno CRDs, bootstrap/kyverno.yaml).
+        argocd.argoproj.io/compare-options: ServerSideDiff=true
       finalizers:
         - resources-finalizer.argocd.argoproj.io
     spec:
