@@ -29,6 +29,7 @@ containerSecurityContext:
 
 # Only the object kinds the alerts and dashboards use (fewer series, smaller bill).
 collectors:
+  - horizontalpodautoscalers   # Phase 9: the AutoscalerAtMaximum alert (kube_horizontalpodautoscaler_*)
   - deployments
   - daemonsets
   - statefulsets
