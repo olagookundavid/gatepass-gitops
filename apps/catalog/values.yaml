@@ -23,7 +23,7 @@ basePath: /catalog
 port: 8080
 replicaCount: 2
 env:
-  LOG_LEVEL: info
+  LOG_LEVEL: warn   # TEST (walkthrough 12): changes the pod template so a rollout starts; reverted with the threshold
   AWS_REGION: us-east-1
   DB_NAME: catalog
   DB_USER: catalog_app
@@ -79,3 +79,5 @@ terminationGracePeriodSeconds: 45
 # old version keeps serving. See charts/gatepass-service/templates/rollout.yaml and analysis.yaml.
 rollout:
   enabled: true
+  analysis:
+    maxErrorRate: "0"   # TEST (walkthrough 12): an impossible threshold, so a healthy canary fails and must abort
