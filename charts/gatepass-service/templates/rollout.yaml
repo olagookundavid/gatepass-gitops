@@ -1,0 +1,41 @@
+{{- /*
+The Argo Rollouts Rollout: the same pods as the Deployment (gps.podTemplate), run by a controller that
+moves the replicas to the new version in steps and runs the analysis (templates/analysis.yaml) between
+them. If a measurement fails more often than failureLimit the Rollout ABORTS: the new pods are scaled
+down, the old version keeps serving, the Rollout shows Degraded and Argo CD reports it. Nobody has to
+notice. `workloadRef` is not used: the template is written here so Argo CD owns exactly one object.
+Replicas are not written when an autoscaler owns them (the HPA scales the Rollout through its scale
+subresource).
+*/ -}}
+{{- if .Values.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "gps.fullname" . }}
+  labels: {{- include "gps.labels" . | nindent 4 }}
+spec:
+  {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {{- include "gps.selectorLabels" . | nindent 6 }}
+  template: {{- include "gps.podTemplate" . | nindent 4 }}
+  strategy:
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        {{- range .Values.rollout.steps }}
+        {{- if hasKey . "analysis" }}
+        - analysis:
+            templates:
+              - templateName: {{ include "gps.fullname" $ }}-canary
+            args:
+              - {name: canary-version, value: {{ $.Values.image.tag | quote }}}
+        {{- else }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- end }}
+{{- end }}

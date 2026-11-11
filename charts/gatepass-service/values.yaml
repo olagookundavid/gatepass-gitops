@@ -30,7 +30,18 @@ terminationGracePeriodSeconds: 30
 progressDeadlineSeconds: 180   # a rollout that is not ready after this long is reported failed
 nodeSelector: {}
 tolerations: []             # e.g. the spot taint for a stateless worker
-topologySpread: true        # spread replicas over zones and nodes (best effort)
+# Spread the replicas over zones and nodes. zone: DoNotSchedule (hard) for a service that must survive the
+# loss of an availability zone (an unbalanced zone is an availability risk; needs spare capacity that can
+# appear in the missing zone: Karpenter launches it); ScheduleAnyway (soft) for the rest. Nodes: always soft.
+topologySpread:
+  enabled: true
+  zone: ScheduleAnyway      # ScheduleAnyway | DoNotSchedule
+# Raw pod affinity, passed through. Workers use it to PREFER the Spot pool and fall back to on-demand.
+affinity: {}
+# A pause BEFORE the stop signal (native Kubernetes sleep action; the images have no shell) so the load
+# balancer has deregistered the pod before it starts refusing work. terminationGracePeriodSeconds must
+# cover this + the service's SHUTDOWN_DELAY (default 5 s) + its drain.
+preStopSleepSeconds: 0
 
 serviceAccount:
   create: true
@@ -93,11 +104,15 @@ keda:
   maxReplicaCount: 10
   pollingInterval: 30
   cooldownPeriod: 300
-  triggers: []              # raw KEDA triggers, e.g. aws-sqs-queue
+  triggers: []              # raw KEDA triggers, e.g. aws-sqs-queue; authenticationRef is added by the chart
+  # The ClusterTriggerAuthentication (platform/cluster-config/keda-trigger-auth.yaml) that lets KEDA read SQS
+  # with the identity of its OPERATOR pod. Empty = no authenticationRef.
+  authenticationRef: keda-aws-operator
 
 pdb:
   enabled: true
-  minAvailable: 1
+  minAvailable: 1           # a service with ONE replica (a scaled-down worker) must use maxUnavailable instead:
+  maxUnavailable: null      # minAvailable 1 on one pod makes `kubectl drain` wait forever (set this OR minAvailable)
 
 # --- secrets (External Secrets copies them from Secrets Manager into a Kubernetes Secret)
 externalSecret:
@@ -114,6 +129,32 @@ secretFiles:
   enabled: false
   mountPath: /var/run/secrets/app
   data: []                  # [{fileName: signing-key, key: gatepass/dev/app/ticket-signing-key, property: ""}]
+
+# --- progressive delivery (Argo Rollouts): replaces the Deployment by a Rollout that moves traffic to the new
+# version in steps and aborts by itself when the analysis fails. Canary by REPLICA COUNT (no traffic
+# routing: the ALB sends requests to every ready pod, so the new version gets about weight% of the pods'
+# share); production adds traffic routing (ALB weights or a mesh) for exact percentages.
+# The analysis asks the Prometheus workspace (AMP, SigV4 with the Rollouts controller's Pod Identity
+# role) about the NEW version only: the metrics carry the service.version resource attribute as the label
+# service_version (= image.tag). The workspace URL is not in Git: an ExternalSecret copies it from
+# Secrets Manager into <release>-analysis.
+rollout:
+  enabled: false
+  steps:                    # setWeight is the share of the replicas on the new version
+    - setWeight: 25
+    - analysis: true
+    - setWeight: 50
+    - analysis: true
+  analysis:
+    interval: 30s
+    count: 4                # measurements per analysis step (4 x 30 s = 2 minutes of evidence)
+    failureLimit: 1         # failed measurements tolerated before the rollout aborts
+    maxErrorRate: "0.05"    # share of 5xx among the new version's requests
+    maxP95Seconds: "0.5"    # 95th percentile latency of the new version
+    window: 2m
+    prometheusSecretKey: gatepass/dev/app/observability-endpoints
+    prometheusSecretProperty: amp_query_url
+    region: us-east-1
 
 # --- database migrations: a Job in the Sync phase, wave -1 (runs before the Deployment is updated)
 migration:

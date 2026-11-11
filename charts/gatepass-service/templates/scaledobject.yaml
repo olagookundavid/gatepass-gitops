@@ -6,10 +6,23 @@ metadata:
   name: {{ include "gps.fullname" . }}
   labels: {{- include "gps.labels" . | nindent 4 }}
 spec:
-  scaleTargetRef: {name: {{ include "gps.fullname" . }}}
+  scaleTargetRef:
+    {{- if .Values.rollout.enabled }}
+    {apiVersion: argoproj.io/v1alpha1, kind: Rollout, name: {{ include "gps.fullname" . }}}
+    {{- else }}
+    {name: {{ include "gps.fullname" . }}}
+    {{- end }}
   minReplicaCount: {{ .Values.keda.minReplicaCount }}
   maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
   pollingInterval: {{ .Values.keda.pollingInterval }}
   cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
-  triggers: {{- toYaml .Values.keda.triggers | nindent 4 }}
+  triggers:
+    {{- range .Values.keda.triggers }}
+    - {{- /* every trigger gets the platform's authentication unless it names its own */}}
+      {{- $t := deepCopy . }}
+      {{- if and $.Values.keda.authenticationRef (not (hasKey $t "authenticationRef")) }}
+      {{- $_ := set $t "authenticationRef" (dict "name" $.Values.keda.authenticationRef "kind" "ClusterTriggerAuthentication") }}
+      {{- end }}
+      {{- toYaml $t | nindent 6 }}
+    {{- end }}
 {{- end }}

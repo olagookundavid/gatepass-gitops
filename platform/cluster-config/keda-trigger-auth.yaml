@@ -1,0 +1,25 @@
+# How KEDA authenticates to AWS when it reads a queue: with the identity of its OPERATOR pod.
+#
+# KEDA's ScaledObjects (charts/gatepass-service/templates/scaledobject.yaml) ask SQS for the queue
+# length. Someone has to hold AWS credentials for that. Two designs: every worker pod's role could read
+# its own queue (then the worker role needs sqs:GetQueueAttributes it does not use itself, and KEDA must
+# read the credentials of every workload), or the KEDA operator has ONE role that can read exactly the
+# three queues and nothing else (30-platform-aws/keda.tf). Gatepass uses the second: `identityOwner: keda`.
+#
+# A ClusterTriggerAuthentication is CLUSTER-wide, which is why the platform owns it here: the `apps`
+# project may not create cluster-scoped objects, so a service cannot define its own way of reaching AWS,
+# it can only refer to this one by name (`keda.authenticationRef` in the chart, default keda-aws-operator).
+#
+# SkipDryRunOnMissingResource: KEDA (wave 0 of another Application) installs the CRD this object needs;
+# on a fresh cluster Argo CD may try this file first. The retry then succeeds.
+# Related: bootstrap/keda.yaml, gatepass-infra/30-platform-aws/keda.tf.
+apiVersion: keda.sh/v1alpha1
+kind: ClusterTriggerAuthentication
+metadata:
+  name: keda-aws-operator
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  podIdentity:
+    provider: aws
+    identityOwner: keda

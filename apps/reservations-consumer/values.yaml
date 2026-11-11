@@ -37,3 +37,35 @@ ingress:
 smokeTest:
   enabled: true
   path: /readyz
+
+# --- SCALING AND DISRUPTION (Phase 9, walkthrough 12) ---------------------------------------------
+# KEDA scales this Deployment on the length of the queue (messages waiting + in flight, 10 per replica),
+# between 1 and 4 replicas. KEDA reads SQS with the identity of ITS OWN operator pod
+# (ClusterTriggerAuthentication keda-aws-operator); the queue URL is read from this pod's environment
+# variable INVENTORY_QUEUE_URL, so it is not written in Git. Messages are retried, so an interrupted pod loses nothing.
+# SPOT: the worker may run on the tainted Spot pool and PREFERS it (cheaper); if no Spot node exists it
+# runs on-demand. PDB: maxUnavailable 1, because minAvailable 1 on a single replica would make a node
+# drain wait forever.
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURLFromEnv: INVENTORY_QUEUE_URL
+        queueLength: "10"
+        awsRegion: us-east-1
+tolerations:
+  - {key: gatepass.dev/spot, operator: Equal, value: "true", effect: NoSchedule}
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - {key: karpenter.sh/capacity-type, operator: In, values: [spot]}
+pdb:
+  maxUnavailable: 1

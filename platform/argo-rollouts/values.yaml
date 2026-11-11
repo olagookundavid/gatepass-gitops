@@ -1,0 +1,21 @@
+# Values of the Argo Rollouts chart (bootstrap/argo-rollouts.yaml). Only what differs from the defaults.
+#
+# installCRDs: the Rollout, AnalysisTemplate, AnalysisRun and Experiment CRDs come with the chart.
+# serviceAccount.name: fixed because the Pod Identity association (30-platform-aws/pod-identity.tf) names
+#   it; a different name would give the controller no AWS credentials and every analysis would fail.
+# controller.tolerations: runs on the tainted system nodes next to the other platform controllers.
+# dashboard: off (no extra Ingress to protect).
+installCRDs: true
+controller:
+  replicas: 1
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}
+serviceAccount:
+  create: true
+  name: argo-rollouts
+dashboard:
+  enabled: false

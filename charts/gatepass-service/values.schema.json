@@ -121,6 +121,9 @@
         },
         "triggers": {
           "type": "array"
+        },
+        "authenticationRef": {
+          "type": "string"
         }
       }
     },
@@ -146,6 +149,13 @@
         "minAvailable": {
           "type": "integer",
           "minimum": 0
+        },
+        "maxUnavailable": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -228,6 +238,75 @@
               "property": {
                 "type": "string"
               }
+            }
+          }
+        }
+      }
+    },
+    "topologySpread": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "zone": {
+          "type": "string",
+          "enum": [
+            "ScheduleAnyway",
+            "DoNotSchedule"
+          ]
+        }
+      }
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "preStopSleepSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60
+    },
+    "rollout": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "analysis": {
+          "type": "object",
+          "properties": {
+            "interval": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m)$"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "failureLimit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxErrorRate": {
+              "type": "string",
+              "pattern": "^0(\\.[0-9]+)?$|^1$"
+            },
+            "maxP95Seconds": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            },
+            "window": {
+              "type": "string",
+              "pattern": "^[0-9]+(s|m)$"
+            },
+            "region": {
+              "type": "string"
             }
           }
         }
