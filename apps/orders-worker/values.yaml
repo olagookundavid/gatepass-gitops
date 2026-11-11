@@ -9,7 +9,7 @@
 # No route (ingress off): the pod only polls; the probes are answered on 8080 for kubelet, at the ROOT
 # (/livez, /readyz): the contract has base_path null, hence `basePath: ""`.
 # Scaling on queue age with KEDA comes in Phase 9 (the contract's scaling_hint).
-# Related: apps/orders (same database secret), platform/network-policies/gatepass-orders-worker.yaml.
+# Related: apps/orders (same database secret), platform/network-policies/gatepass-orders.yaml (namespace gatepass-orders).
 image:
   repository: gatepass/orders-worker
 basePath: ""

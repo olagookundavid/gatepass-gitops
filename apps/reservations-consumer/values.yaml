@@ -10,7 +10,7 @@
 # answered on the pod's own port for kubelet.
 #
 # Related: apps/reservations (the API), 50-workloads/roles.tf (role reservations-consumer),
-# platform/network-policies/gatepass-reservations-consumer.yaml. Scaling on queue depth with KEDA
+# platform/network-policies/gatepass-reservations.yaml (namespace gatepass-reservations, shared with the API). Scaling on queue depth with KEDA
 # comes in Phase 9 (the contract's scaling_hint names the queue).
 image:
   repository: gatepass/reservations-api

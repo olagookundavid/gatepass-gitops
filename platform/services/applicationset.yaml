@@ -18,8 +18,9 @@
 # SAFETY
 #   project apps           the narrow fence (projects/apps.yaml): only gatepass-* namespaces, no
 #                          cluster-scoped objects, only this repository as a source.
-#   namespace              gatepass-<name> must already exist (platform/cluster-config creates it
-#                          with Pod Security `restricted`); `apps` may not create cluster objects.
+#   namespace              gatepass-<service> (the directory name up to its first dash: orders-worker
+#                          runs in gatepass-orders) must already exist (platform/cluster-config creates
+#                          it with Pod Security `restricted`); `apps` may not create cluster objects.
 #   goTemplate missingkey=error   a typo in a variable name fails the generator instead of
 #                          silently producing an empty string.
 #
@@ -74,7 +75,10 @@ spec:
           ref: values
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'gatepass-{{ .path.basename }}'
+        # ONE NAMESPACE PER SERVICE, not per deployable: the service is the part of the directory name
+        # before the first dash, so orders, orders-worker and orders-outbox-relay all run in
+        # gatepass-orders. Convention: a new deployable of a service is named <service>-<role>.
+        namespace: 'gatepass-{{ index (splitList "-" .path.basename) 0 }}'
       syncPolicy:
         automated:
           prune: true

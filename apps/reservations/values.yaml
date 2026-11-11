@@ -9,7 +9,8 @@
 # ONE IMAGE, TWO APPLICATIONS. The same image runs the API (here) and the SQS inventory consumer
 # (apps/reservations-consumer, API switched off). Two applications so they scale and fail apart:
 # a flood of messages must not slow down the API, and a deploy of one is independent of the other.
-# Each has its own namespace, service account and AWS role (50-workloads/roles.tf).
+# They share the namespace gatepass-reservations (one namespace per service) but each has its own
+# service account and AWS role (50-workloads/roles.tf).
 #
 # internalService: the PRIVATE listener (8081) gets its own Service and no Ingress rule; only the
 # orders API pods may reach it (NetworkPolicy allow-internal-api-from-orders).
