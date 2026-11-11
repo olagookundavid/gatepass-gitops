@@ -14,8 +14,9 @@
 # environment variable or in a Kubernetes Secret. The migration Job runs the same image with the other
 # secret (orders_migrator, the role that may create tables).
 #
-# Three applications, one namespace each: orders (this), orders-worker (payments), orders-outbox-relay
-# (events). They scale and fail apart and have separate roles.
+# Three applications in ONE namespace (gatepass-orders, one namespace per service): orders (this),
+# orders-worker (payments), orders-outbox-relay (events). They scale and fail apart and have separate
+# service accounts and roles.
 # Related: platform/network-policies/gatepass-orders.yaml (the door to reservations 8081 and RDS 5432),
 # gatepass-infra/50-workloads/roles.tf (roles orders and orders-migrate).
 image:

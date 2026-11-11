@@ -1,16 +1,17 @@
-# Network policies of the namespace gatepass-notifications: the notifications API (a user's notifications and ticket download links; DynamoDB, S3 presign).
+# Network policies of the namespace gatepass-notifications: the two notifications applications share it (one
+# namespace per SERVICE, decision 2026-11-10): the API `notifications` and the worker `notifications-worker`.
 #
-# Same model as gatepass-catalog.yaml and gatepass-reservations.yaml (read gatepass-skeleton.yaml first):
-# default deny, then exactly the paths this service needs. They live in the platform repository path
-# and not in the service's chart because the `apps` project may not create NetworkPolicy objects: a bad
-# pull request to a service must not be able to open the door for itself.
+# Same model as gatepass-catalog.yaml (read gatepass-skeleton.yaml first): default deny, then exactly the
+# paths the pods need. They live in the platform repository path and not in the service's chart because
+# the `apps` project may not create NetworkPolicy objects.
 #
 # OPEN HERE:
-#   ingress 8080 from the ALB subnets; egress DNS, OTLP, Pod Identity agent, HTTPS to AWS (DynamoDB
-#   and S3 go through the gateway endpoints, Cognito keys over the NAT).
-# NOT open: the internet except HTTPS, other namespaces, the data subnets except the ports above.
+#   every pod:  DNS, OTLP, Pod Identity agent, HTTPS to AWS (DynamoDB and S3 through the gateway
+#               endpoints, SQS, Cognito, SES)
+#   `notifications` only:  ingress 8080 from the ALB subnets; the worker has no ingress at all
+# NOT open: the internet except HTTPS, other namespaces, the data subnets.
 # kubelet probes come from the node and need no rule. Related: cluster-config/namespace-gatepass-notifications.yaml,
-# apps/notifications/values.yaml, walkthrough 11.
+# apps/notifications*/values.yaml, walkthrough 11.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

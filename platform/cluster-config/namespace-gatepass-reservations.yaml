@@ -1,14 +1,14 @@
-# Namespace gatepass-reservations: where the reservations API (public and internal listeners) runs (Phase 8, walkthrough 10).
+# Namespace gatepass-reservations: where the two reservations applications: the API (reservations) and the inventory consumer (reservations-consumer) run (one namespace per SERVICE, decision 2026-11-10; before that
+# every deployable had its own).
 #
-# It is created HERE (platform project, cluster-config) and not by the service's own Application,
-# because the `apps` AppProject may not create cluster-scoped objects (projects/apps.yaml:
-# clusterResourceWhitelist is empty). The platform decides which namespaces exist and how strict
-# they are; a service only gets to run inside one. Same shape as namespace-gatepass-skeleton.yaml.
-#
-# The three pod-security labels make Kubernetes itself refuse any pod that is not `restricted`
-# (non-root, no privilege escalation, dropped capabilities, seccomp), a second fence next to the
-# Kyverno policies. gatepass.dev/workloads=true is the label the network policies and Kyverno
-# select on. Related: platform/network-policies/gatepass-reservations.yaml, apps/reservations/values.yaml.
+# Created HERE (platform project, cluster-config) and not by the service's own Applications, because the
+# `apps` AppProject may not create cluster-scoped objects (projects/apps.yaml: clusterResourceWhitelist
+# is empty). The services ApplicationSet puts every application of the service here (namespace =
+# gatepass- + the directory name up to its first dash). What still separates the deployables inside it:
+# their own service account and AWS role (Pod Identity binds role to namespace AND service account),
+# their own Deployment, and NetworkPolicies that select pods by label where the rules differ.
+# Same pod-security labels as namespace-gatepass-catalog.yaml (read its header).
+# Related: platform/network-policies/gatepass-reservations.yaml, platform/services/applicationset.yaml.
 apiVersion: v1
 kind: Namespace
 metadata:

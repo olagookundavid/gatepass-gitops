@@ -14,7 +14,7 @@
 # mail to ONE verified address (kept in Secrets Manager, not here: it is a personal address and this
 # repository is public). When SES production access is granted, remove that row.
 # No route (ingress off); probes at the ROOT, hence `basePath: ""`. KEDA scaling on the queue: Phase 9.
-# Related: apps/notifications, platform/network-policies/gatepass-notifications-worker.yaml.
+# Related: apps/notifications, platform/network-policies/gatepass-notifications.yaml (namespace gatepass-notifications, shared with the API).
 image:
   repository: gatepass/notifications-worker
 basePath: ""

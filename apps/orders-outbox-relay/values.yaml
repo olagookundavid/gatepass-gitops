@@ -9,7 +9,7 @@
 # the backlog and never publish the same row at once (proven locally, HANDOFF.md). One replica going down
 # does not stop the events. Alarm to build: `outbox_unpublished` above 0 for minutes.
 # No route (ingress off); probes at the ROOT, hence `basePath: ""`.
-# Related: apps/orders, platform/network-policies/gatepass-orders-outbox-relay.yaml.
+# Related: apps/orders, platform/network-policies/gatepass-orders.yaml (namespace gatepass-orders, shared with the API and the worker).
 image:
   repository: gatepass/orders-outbox-relay
 basePath: ""
