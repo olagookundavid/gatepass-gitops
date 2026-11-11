@@ -2,5 +2,5 @@
 # The image deployed in dev: the tag is a label (the commit), the digest decides the bytes.
 # To roll back, revert the pull request that changed this file.
 image:
-  tag: sha-a6eb747
-  digest: sha256:fd184bc6d85f3891519ff510fca146928f3a200a0e65b378a84602bfdf956fd4
+  tag: sha-8ab44c1
+  digest: sha256:9719dfb52a0bad0bc9682b05cc12685967b08c3af3ac5565f6962329df1893f1
